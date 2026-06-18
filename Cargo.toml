@@ -1,0 +1,32 @@
+[package]
+name = "asterism-pkcs11"
+version = "0.1.0"
+edition = "2024"
+description = "PKCS#11-backed Signer implementation for the Emerald multi-signature custody platform."
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+# Enable integration tests against a SoftHSMv2 token described by .env.
+integration = []
+# Enable software-side BIP32 derivation for development. Master keys must be
+# CKA_EXTRACTABLE=true. NEVER enable in production.
+dev-derivation = []
+
+[dependencies]
+asterism-core = { version = "0.1.0", path = "../asterism-core" }
+bdk_wallet = "3.1.0"
+bitcoin = "0.32.100"
+cryptoki = "0.12.0"
+hex = "0.4.3"
+miniscript = "12.3.7"
+secrecy = "0.10.3"
+serde = "1.0.228"
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+asterism-core = { path = "../asterism-core", features = ["test-utils"] }
+dotenvy = "0.15.7"
+serial_test = "3.5.0"
+tempfile = "3.27.0"
