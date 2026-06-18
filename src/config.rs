@@ -26,6 +26,11 @@ impl Pkcs11Config {
     /// Build a `Pkcs11Config` from the `SOFTHSM2_LIB` environment variable
     /// (the standard variable used in the project's `.env`). Falls back to
     /// `PKCS11_LIB` for non-SoftHSM deployments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::Env`] if neither `SOFTHSM2_LIB` nor `PKCS11_LIB`
+    /// is present in the process environment.
     pub fn from_env() -> Result<Self, Pkcs11Error> {
         let path = std::env::var("SOFTHSM2_LIB")
             .ok()
@@ -51,19 +56,19 @@ pub enum SlotIdentifier {
 impl SlotIdentifier {
     /// Convenience constructor for label-based selection.
     pub fn label(s: impl Into<String>) -> Self {
-        SlotIdentifier::Label(s.into())
+        Self::Label(s.into())
     }
     /// Convenience constructor for slot-id selection.
     pub fn slot_id(id: u64) -> Self {
-        SlotIdentifier::SlotId(id)
+        Self::SlotId(id)
     }
 }
 
 impl std::fmt::Display for SlotIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SlotIdentifier::Label(l) => write!(f, "label={l}"),
-            SlotIdentifier::SlotId(id) => write!(f, "slot_id={id}"),
+            Self::Label(l) => write!(f, "label={l}"),
+            Self::SlotId(id) => write!(f, "slot_id={id}"),
         }
     }
 }

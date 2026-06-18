@@ -1,8 +1,8 @@
 //! # asterism-pkcs11
 //!
 //! PKCS#11-backed [`asterism_core::Signer`] implementation. Talks to any
-//! PKCS#11-compatible HSM (SoftHSMv2 for development; YubiHSM, Thales Luna,
-//! AWS CloudHSM, etc. for production) via the [`cryptoki`] crate.
+//! PKCS#11-compatible HSM (`SoftHSMv2` for development; `YubiHSM`, Thales
+//! Luna, AWS `CloudHSM`, etc. for production) via the [`cryptoki`] crate.
 //!
 //! Each [`Pkcs11Signer`] represents a single HSM token holding one secp256k1
 //! keypair plus chain-code and metadata stored as `CKO_DATA` objects. The
@@ -19,7 +19,7 @@
 //! let cfg = Pkcs11Config::from_env()?;
 //! let session = Pkcs11Session::open(
 //!     &cfg,
-//!     SlotIdentifier::label("asterism-test"),
+//!     &SlotIdentifier::label("asterism-test"),
 //!     "test-pin-9999",
 //! )?;
 //! let path = DerivationPath::from_str("m/48'/1'/0'/2'")?;
@@ -33,7 +33,7 @@
 //! - **Fixed-key BIP32 derivation strategy** is the only strategy enabled by
 //!   default. Each signer holds one key; the federation descriptor uses raw
 //!   pubkeys (`DescriptorPublicKey::Single`) rather than ranged xpubs. This
-//!   matches SoftHSMv2's capabilities and the institutional-custody model.
+//!   matches `SoftHSMv2`'s capabilities and the institutional-custody model.
 //! - [`HsmNativeBip32`] is provided for production HSMs that advertise
 //!   `CKM_BIP32_CHILD_KEY_DERIVE`. It returns
 //!   [`Pkcs11Error::DerivationUnsupported`] when the loaded library doesn't
@@ -47,6 +47,12 @@
 
 #![warn(missing_docs)]
 #![deny(unsafe_code)]
+#![allow(
+    // chatty on every getter/builder; not a footgun in this codebase
+    clippy::must_use_candidate,
+    // const-fn surface area is still evolving in stable Rust
+    clippy::missing_const_for_fn,
+)]
 
 pub mod config;
 pub mod derivation;

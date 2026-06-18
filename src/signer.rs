@@ -59,8 +59,11 @@ impl std::fmt::Debug for Pkcs11Signer {
             .field("id", &self.id)
             .field("fingerprint", &self.fingerprint)
             .field("derivation_path", &self.derivation_path)
+            .field("xpub", &self.xpub)
             .field("network", &self.network)
-            .finish()
+            .field("capabilities", &self.capabilities)
+            .field("descriptor_key", &self.descriptor_key)
+            .finish_non_exhaustive()
     }
 }
 
@@ -85,6 +88,11 @@ impl Pkcs11Signer {
     ///
     /// Uses [`FixedKey`] as the derivation strategy by default — see
     /// [`Self::with_strategy`] to override.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error`] if HSM key generation, metadata persistence,
+    /// or descriptor-key construction fails.
     pub fn generate(
         session: Pkcs11Session,
         label: &str,
@@ -96,6 +104,11 @@ impl Pkcs11Signer {
     }
 
     /// Load an existing signer by label.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::ObjectNotFound`] if no key with `label` exists,
+    /// or any other [`Pkcs11Error`] surfaced by the underlying token.
     pub fn load(
         session: Pkcs11Session,
         label: &str,
@@ -109,6 +122,11 @@ impl Pkcs11Signer {
     /// Construct from an already-loaded key with a custom derivation
     /// strategy. Useful for production HSMs that need
     /// [`crate::HsmNativeBip32`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error`] if metadata extraction or descriptor-key
+    /// construction via `strategy` fails.
     pub fn with_strategy(
         session: Pkcs11Session,
         label: &str,
@@ -174,12 +192,32 @@ impl Pkcs11Signer {
     }
 
     /// Read the HSM-resident [`MinimalHsmPolicy`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error`] if the policy object is missing, malformed,
+    /// or the underlying token can't be queried.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned (only possible if a previous
+    /// caller panicked while holding the lock).
     pub fn policy(&self) -> Result<MinimalHsmPolicy, Pkcs11Error> {
         let inner = self.inner.lock().expect("Pkcs11Signer mutex poisoned");
         policy::load_policy(&inner.session, &self.label)
     }
 
     /// Replace the HSM-resident policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error`] if the underlying token rejects the write or
+    /// the policy serialization fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned (only possible if a previous
+    /// caller panicked while holding the lock).
     pub fn set_policy(&self, p: &MinimalHsmPolicy) -> Result<(), Pkcs11Error> {
         let inner = self.inner.lock().expect("Pkcs11Signer mutex poisoned");
         policy::save_policy(&inner.session, &self.label, p).map(|_| ())
@@ -216,14 +254,13 @@ impl Signer for Pkcs11Signer {
         self.capabilities.clone()
     }
     fn health_check(&self) -> Result<SignerHealth, SignerError> {
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| SignerError::Backend("Pkcs11Signer mutex poisoned".into()))?;
-        let label = inner
-            .session
-            .token_label()
-            .map_err(|e| SignerError::from(e))?;
+        let label = {
+            let inner = self
+                .inner
+                .lock()
+                .map_err(|_| SignerError::Backend("Pkcs11Signer mutex poisoned".into()))?;
+            inner.session.token_label().map_err(SignerError::from)?
+        };
         Ok(SignerHealth {
             reachable: true,
             firmware_version: Some(format!("pkcs11/{label}")),
@@ -243,26 +280,28 @@ impl SignerCommon for Pkcs11Signer {
 }
 
 impl TransactionSigner for Pkcs11Signer {
+    // The mutex guard wraps a `cryptoki::Session` which is `!Sync`, so it
+    // genuinely needs to be held across the whole signing flow (sighash
+    // computation, per-input signing via the strategy, and the post-loop
+    // sig-rate update all reference `inner.session`).
+    #[allow(clippy::significant_drop_tightening)]
     fn sign_transaction(
         &self,
         psbt: &mut Psbt,
         _sign_options: &SignOptions,
         _secp: &Secp256k1<All>,
     ) -> Result<(), BdkSignerError> {
-        // 1) Lock the inner state.
         let inner = self
             .inner
             .lock()
             .map_err(|_| BdkSignerError::External("Pkcs11Signer mutex poisoned".into()))?;
 
-        // 2) Enforce HSM-local policy before any signing.
         let policy = policy::load_policy(&inner.session, &self.label)
             .map_err(|e| BdkSignerError::External(e.to_string()))?;
         policy
             .check_against_psbt(psbt, self.network)
             .map_err(|e| BdkSignerError::External(e.to_string()))?;
 
-        // 3) Build the per-signer SignerContext once.
         let chain_code = inner
             .loaded
             .material
@@ -277,10 +316,8 @@ impl TransactionSigner for Pkcs11Signer {
             private_key_handle: inner.loaded.private_key,
         };
 
-        // 4) Walk the PSBT inputs, signing those that reference this signer.
         let mut signed_any = false;
         for input_idx in 0..psbt.inputs.len() {
-            // Find a key in this input whose origin matches our fingerprint.
             let our_origin = psbt.inputs[input_idx]
                 .bip32_derivation
                 .iter()
@@ -291,11 +328,11 @@ impl TransactionSigner for Pkcs11Signer {
                 continue;
             };
 
-            // Compute sighash. v1 supports P2WSH (Segwitv0) only — the
-            // common case for asterism federations.
+            // v1 supports P2WSH (Segwitv0) sighashes only — the common case
+            // for asterism federations.
             let sighash_type = psbt.inputs[input_idx]
                 .sighash_type
-                .map(|t| t.ecdsa_hash_ty())
+                .map(bitcoin::psbt::PsbtSighashType::ecdsa_hash_ty)
                 .transpose()
                 .map_err(|e| BdkSignerError::External(format!("invalid sighash type: {e}")))?
                 .unwrap_or(EcdsaSighashType::All);
@@ -324,12 +361,10 @@ impl TransactionSigner for Pkcs11Signer {
                 .map_err(|e| BdkSignerError::External(format!("sighash failure: {e}")))?;
             let sighash_msg: [u8; 32] = sighash.to_byte_array();
 
-            // Sign via the strategy.
             let mut sig = inner
                 .derivation
                 .sign_input(&signer_ctx, &input_path, &sighash_msg)
                 .map_err(|e| BdkSignerError::External(e.to_string()))?;
-            // Belt-and-suspenders: ensure low-S even if strategy didn't.
             sig.normalize_s();
 
             let bitcoin_sig = bitcoin::ecdsa::Signature {
@@ -341,7 +376,6 @@ impl TransactionSigner for Pkcs11Signer {
             signed_any = true;
         }
 
-        // 5) Update the sig-rate counter only if at least one input was signed.
         if signed_any {
             policy::check_and_record_sigrate(&inner.session, &self.label, &policy)
                 .map_err(|e| BdkSignerError::External(e.to_string()))?;

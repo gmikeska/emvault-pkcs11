@@ -89,7 +89,7 @@ use std::str::FromStr;
 let cfg = Pkcs11Config::from_env()?;
 let session = Pkcs11Session::open(
     &cfg,
-    SlotIdentifier::label("asterism-test"),
+    &SlotIdentifier::label("asterism-test"),
     "test-pin-9999",
 )?;
 

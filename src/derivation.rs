@@ -1,15 +1,15 @@
 //! [`Bip32DerivationStrategy`] — pluggable BIP-32 derivation backend.
 //!
-//! Different HSMs support BIP-32 differently. SoftHSMv2 has no native
-//! `CKM_BIP32_CHILD_KEY_DERIVE` mechanism; production HSMs (AWS CloudHSM,
-//! YubiHSM, Thales Luna) typically do. Some development workflows also need
-//! to derive child keys in software for debugging.
+//! Different HSMs support BIP-32 differently. `SoftHSMv2` has no native
+//! `CKM_BIP32_CHILD_KEY_DERIVE` mechanism; production HSMs (AWS `CloudHSM`,
+//! `YubiHSM`, Thales Luna) typically do. Some development workflows also
+//! need to derive child keys in software for debugging.
 //!
 //! `asterism-pkcs11` accommodates all three with a runtime strategy:
 //!
 //! - [`FixedKey`] (default, v1 production-ready) — one key per HSM, raw
 //!   pubkeys in the descriptor, no child derivation. Compatible with
-//!   SoftHSMv2 and any PKCS#11-compliant token.
+//!   `SoftHSMv2` and any PKCS#11-compliant token.
 //! - [`HsmNativeBip32`] — invokes `CKM_BIP32_CHILD_KEY_DERIVE`. Returns
 //!   [`Pkcs11Error::DerivationUnsupported`] when the loaded library does
 //!   not advertise the mechanism.
@@ -36,12 +36,24 @@ pub trait Bip32DerivationStrategy: Send + Sync + std::fmt::Debug {
     fn name(&self) -> &'static str;
 
     /// Build the descriptor key for the federation descriptor.
+    ///
+    /// # Errors
+    ///
+    /// Implementations return [`Pkcs11Error`] when the descriptor key cannot
+    /// be derived (e.g. the HSM doesn't support the requested derivation).
     fn descriptor_key(&self, ctx: &SignerContext<'_>) -> Result<DescriptorPublicKey, Pkcs11Error>;
 
     /// Sign `sighash` for an input whose BIP-32 derivation path is
     /// `input_derivation`. Implementations that don't support BIP-32
     /// derivation should ignore `input_derivation` and sign with the
     /// signer's only key.
+    ///
+    /// # Errors
+    ///
+    /// Implementations return [`Pkcs11Error`] when signing fails — typically
+    /// [`Pkcs11Error::DerivationUnsupported`] for native-derivation
+    /// strategies on tokens that don't advertise the mechanism, or
+    /// [`Pkcs11Error::Backend`] for cryptoki-level failures.
     fn sign_input(
         &self,
         ctx: &SignerContext<'_>,
@@ -78,7 +90,8 @@ pub struct SignerContext<'a> {
 ///
 /// `sign_input` ignores the requested derivation path and signs directly
 /// with the HSM's only key. This is the only strategy that works uniformly
-/// across SoftHSMv2 and production HSMs without vendor-specific extensions.
+/// across `SoftHSMv2` and production HSMs without vendor-specific
+/// extensions.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FixedKey;
 
@@ -114,9 +127,9 @@ impl Bip32DerivationStrategy for FixedKey {
 /// Uses the HSM's native BIP-32 derivation mechanism.
 ///
 /// The mechanism number is vendor-defined; commonly:
-/// - `CKM_VENDOR_DEFINED | 0x4001` for AWS CloudHSM.
-/// - YubiHSM exposes BIP-32 through its own SDK rather than PKCS#11.
-/// - Thales Luna's ProtectServer offers BIP-32 via Pkcs11 extensions.
+/// - `CKM_VENDOR_DEFINED | 0x4001` for AWS `CloudHSM`.
+/// - `YubiHSM` exposes BIP-32 through its own SDK rather than PKCS#11.
+/// - Thales Luna's `ProtectServer` offers BIP-32 via PKCS#11 extensions.
 ///
 /// Construction takes the vendor mechanism type to use; if the loaded
 /// library doesn't advertise it on `get_mechanism_list`, both
@@ -161,9 +174,11 @@ impl Bip32DerivationStrategy for HsmNativeBip32 {
         // wallets will derive child pubkeys locally for address
         // generation, then ask the HSM to sign using its child-key
         // derivation mechanism.
+        let depth =
+            u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
         let xpub = bitcoin::bip32::Xpub {
             network: bitcoin::NetworkKind::Test,
-            depth: ctx.derivation_path.len() as u8,
+            depth,
             parent_fingerprint: bitcoin::bip32::Fingerprint::default(),
             child_number: ctx
                 .derivation_path
@@ -234,9 +249,11 @@ impl Bip32DerivationStrategy for SoftwareTweakDev {
              This violates the project's security model and must never be enabled in production."
         );
         // Same shape as HsmNativeBip32: emit an xpub.
+        let depth =
+            u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
         let xpub = bitcoin::bip32::Xpub {
             network: bitcoin::NetworkKind::Test,
-            depth: ctx.derivation_path.len() as u8,
+            depth,
             parent_fingerprint: bitcoin::bip32::Fingerprint::default(),
             child_number: ctx
                 .derivation_path

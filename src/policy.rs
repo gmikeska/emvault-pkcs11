@@ -61,6 +61,13 @@ impl MinimalHsmPolicy {
     ///
     /// `network` is required so that whitelist addresses (which are stored
     /// as `NetworkUnchecked`) can be compared safely.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::PolicyViolation`] when a rule rejects the PSBT
+    /// (e.g. exceeded per-transaction limit, output not in whitelist), or
+    /// [`Pkcs11Error::Bitcoin`] if a whitelist entry doesn't bind to
+    /// `network`.
     pub fn check_against_psbt(
         &self,
         psbt: &Psbt,
@@ -113,10 +120,16 @@ pub struct SigRateCounter {
 
 impl SigRateCounter {
     /// Drop entries older than `now - 3600s` and return the count.
+    ///
+    /// # Panics
+    ///
+    /// Panics if more than [`u32::MAX`] timestamps remain in the counter
+    /// after pruning — practically impossible given the trailing-hour
+    /// retention policy.
     pub fn prune_and_count(&mut self, now: u64) -> u32 {
         let cutoff = now.saturating_sub(3600);
         self.timestamps.retain(|t| *t >= cutoff);
-        self.timestamps.len() as u32
+        u32::try_from(self.timestamps.len()).expect("trailing-hour signature count fits u32")
     }
 
     /// Append a new timestamp.
@@ -140,6 +153,13 @@ fn sigrate_label(label: &str) -> String {
 
 /// Read the policy from the token. Returns [`MinimalHsmPolicy::permissive`]
 /// if no policy object is present.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if any underlying token call fails,
+/// [`Pkcs11Error::ObjectNotFound`] if the policy object is missing its
+/// `Value` attribute, or [`Pkcs11Error::Serialization`] if the bytes don't
+/// decode as a [`MinimalHsmPolicy`].
 pub fn load_policy(session: &Pkcs11Session, label: &str) -> Result<MinimalHsmPolicy, Pkcs11Error> {
     let s = session.session();
     let handles = s
@@ -165,6 +185,12 @@ pub fn load_policy(session: &Pkcs11Session, label: &str) -> Result<MinimalHsmPol
 }
 
 /// Persist the policy to the token (replaces any existing policy object).
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if the token rejects any
+/// `find_objects` / `destroy_object` / `create_object` call, or
+/// [`Pkcs11Error::Serialization`] if the policy fails to encode.
 pub fn save_policy(
     session: &Pkcs11Session,
     label: &str,
@@ -196,6 +222,13 @@ pub fn save_policy(
 
 /// Read the sig-rate counter, returning a fresh empty counter if no object
 /// exists yet.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if any underlying token call fails,
+/// [`Pkcs11Error::ObjectNotFound`] if the sig-rate object is missing its
+/// `Value` attribute, or [`Pkcs11Error::Serialization`] if the bytes don't
+/// decode as a [`SigRateCounter`].
 pub fn load_sigrate(session: &Pkcs11Session, label: &str) -> Result<SigRateCounter, Pkcs11Error> {
     let s = session.session();
     let handles = s
@@ -221,6 +254,12 @@ pub fn load_sigrate(session: &Pkcs11Session, label: &str) -> Result<SigRateCount
 }
 
 /// Persist the sig-rate counter (replace).
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if the token rejects any
+/// `find_objects` / `destroy_object` / `create_object` call, or
+/// [`Pkcs11Error::Serialization`] if the counter fails to encode.
 pub fn save_sigrate(
     session: &Pkcs11Session,
     label: &str,
@@ -254,6 +293,12 @@ pub fn save_sigrate(
 ///
 /// Returns [`Pkcs11Error::PolicyViolation`] if recording another signature
 /// would exceed `policy.max_signatures_per_hour`.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::PolicyViolation`] if the trailing-hour count is
+/// at or above `policy.max_signatures_per_hour`, or any error returned by
+/// [`load_sigrate`] or [`save_sigrate`].
 pub fn check_and_record_sigrate(
     session: &Pkcs11Session,
     label: &str,
@@ -265,8 +310,7 @@ pub fn check_and_record_sigrate(
     let mut counter = load_sigrate(session, label)?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let count = counter.prune_and_count(now);
     if count >= max {
         return Err(Pkcs11Error::PolicyViolation(format!(

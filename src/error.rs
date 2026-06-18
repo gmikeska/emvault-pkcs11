@@ -24,7 +24,7 @@ pub enum Pkcs11Error {
     /// uninitialized.
     #[error("PKCS#11 slot {0} has no initialized token")]
     NoToken(String),
-    /// Login (CKU_USER) failed.
+    /// Login (`CKU_USER`) failed.
     #[error("PKCS#11 login failed: {0}")]
     LoginFailed(cryptoki::error::Error),
     /// Generic PKCS#11 error.
@@ -85,15 +85,15 @@ pub enum Pkcs11Error {
 impl From<Pkcs11Error> for SignerError {
     fn from(e: Pkcs11Error) -> Self {
         match e {
-            Pkcs11Error::PolicyViolation(rule) => SignerError::PolicyViolation {
+            Pkcs11Error::PolicyViolation(rule) => Self::PolicyViolation {
                 id: asterism_core::SignerId::new("pkcs11"),
                 rule,
             },
-            Pkcs11Error::DerivationUnsupported { strategy, reason } => SignerError::SigningFailed {
+            Pkcs11Error::DerivationUnsupported { strategy, reason } => Self::SigningFailed {
                 id: asterism_core::SignerId::new("pkcs11"),
                 reason: format!("{strategy}: {reason}"),
             },
-            other => SignerError::Backend(other.to_string()),
+            other => Self::Backend(other.to_string()),
         }
     }
 }

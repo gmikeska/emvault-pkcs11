@@ -1,4 +1,4 @@
-//! Integration tests against a live SoftHSMv2 token.
+//! Integration tests against a live `SoftHSMv2` token.
 //!
 //! Gated behind the `integration` feature. Reads HSM credentials from
 //! `../asterism-core/.env` via [`dotenvy`]. Tests are serialized via
@@ -40,7 +40,7 @@ fn test_session() -> Pkcs11Session {
     let cfg = Pkcs11Config::from_env().expect("SOFTHSM2_LIB env var");
     let label = std::env::var(TEST_LABEL_ENV).expect("HSM_TEST_LABEL env var");
     let pin = std::env::var(TEST_PIN_ENV).expect("HSM_TEST_PIN env var");
-    Pkcs11Session::open(&cfg, SlotIdentifier::label(label), &pin).expect("open test session")
+    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open test session")
 }
 
 fn dev_session(idx: u8) -> Pkcs11Session {
@@ -50,7 +50,7 @@ fn dev_session(idx: u8) -> Pkcs11Session {
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_LABEL env var"));
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
-    Pkcs11Session::open(&cfg, SlotIdentifier::label(label), &pin).expect("open dev session")
+    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open dev session")
 }
 
 /// Wipe a label off the test token so a re-running test starts clean.
@@ -239,6 +239,7 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     use bdk_wallet::SignOptions;
     use bdk_wallet::signer::{SignerCommon, TransactionSigner};
     use bitcoin::secp256k1::Secp256k1;
+    use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
 
     let s = test_session();
     let label = "integration-bdk-sign";
@@ -255,7 +256,6 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     // Build a fake P2WSH input that references our pubkey + fingerprint via
     // PSBT bip32_derivation. We don't expect full finalization here — just
     // that the signer inserts a partial_sig.
-    use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
     let secp_pk = signer.xpub().public_key;
     let pk = bitcoin::PublicKey::new(secp_pk);
     let witness_script = bitcoin::ScriptBuf::builder()
@@ -288,7 +288,7 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     psbt.inputs[0].witness_script = Some(witness_script);
     psbt.inputs[0]
         .bip32_derivation
-        .insert(secp_pk, (signer.fingerprint(), path.clone()));
+        .insert(secp_pk, (signer.fingerprint(), path));
 
     signer
         .sign_transaction(&mut psbt, &SignOptions::default(), &secp)

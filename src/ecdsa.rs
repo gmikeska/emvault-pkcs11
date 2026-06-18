@@ -11,14 +11,23 @@ use cryptoki::session::Session;
 
 use crate::error::Pkcs11Error;
 
-/// Sign a 32-byte sighash with the given private-key handle, applying
-/// low-S normalization (BIP-146) so the resulting signature is canonical
-/// and won't be rejected by a Bitcoin node's STRICTENC enforcement.
+/// Sign a 32-byte sighash with the given private-key handle.
+///
+/// Applies low-S normalization (BIP-146) so the resulting signature is
+/// canonical and won't be rejected by a Bitcoin node's `STRICTENC`
+/// enforcement.
 ///
 /// The PKCS#11 `CKM_ECDSA` mechanism takes pre-hashed input and returns a
 /// raw `(r || s)` 64-byte signature. We re-pack via
 /// `secp256k1::ecdsa::Signature::from_compact` to get a structured
 /// signature, then call `normalize_s()` to enforce the low-S rule.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if the underlying token rejects the
+/// signing request, [`Pkcs11Error::Backend`] if the returned signature is
+/// not 64 bytes, or [`Pkcs11Error::Secp256k1`] if `secp256k1` cannot parse
+/// the compact signature bytes.
 pub fn sign_with_low_s(
     session: &Session,
     private_key: ObjectHandle,

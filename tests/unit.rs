@@ -1,6 +1,6 @@
 //! Stand-alone unit tests that don't require an HSM session.
 //!
-//! Integration tests against SoftHSMv2 live in `integration.rs` and are
+//! Integration tests against `SoftHSMv2` live in `integration.rs` and are
 //! gated behind the `integration` feature.
 
 use asterism_core::SignerError;

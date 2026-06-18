@@ -34,9 +34,17 @@ impl Pkcs11Session {
     /// [`Pkcs11::initialize`] before slot resolution. A read-write session
     /// is opened so signing-side mutations (e.g. updating the
     /// [`crate::policy::MinimalHsmPolicy`] sig-rate counter) succeed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::LibraryLoad`] if the shared library can't be
+    /// loaded, [`Pkcs11Error::Initialize`] if the module rejects
+    /// initialization, [`Pkcs11Error::SlotNotFound`] / [`Pkcs11Error::Pkcs11`]
+    /// if the slot resolution fails, or [`Pkcs11Error::LoginFailed`] if the
+    /// PIN is rejected.
     pub fn open(
         cfg: &Pkcs11Config,
-        slot_identifier: SlotIdentifier,
+        slot_identifier: &SlotIdentifier,
         user_pin: &str,
     ) -> Result<Self, Pkcs11Error> {
         let ctx = Pkcs11::new(&cfg.library_path).map_err(|e| Pkcs11Error::LibraryLoad {
@@ -44,22 +52,20 @@ impl Pkcs11Session {
             source: e,
         })?;
         match ctx.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK)) {
-            Ok(()) => {}
             // PKCS#11 modules are process-global; if the same library has
             // already been initialized (e.g. by another `Pkcs11Session` in
             // this process), reuse it rather than failing.
-            Err(CryptokiError::Pkcs11(RvError::CryptokiAlreadyInitialized, _)) => {}
+            Ok(()) | Err(CryptokiError::Pkcs11(RvError::CryptokiAlreadyInitialized, _)) => {}
             Err(e) => return Err(Pkcs11Error::Initialize(e)),
         }
-        let slot = resolve_slot(&ctx, &slot_identifier)?;
+        let slot = resolve_slot(&ctx, slot_identifier)?;
         let session = ctx.open_rw_session(slot)?;
         let pin: AuthPin = SecretString::from(user_pin.to_owned());
         match session.login(UserType::User, Some(&pin)) {
-            Ok(()) => {}
             // Login state is per-token, not per-session; another session in
             // this process may already hold the User login. That's a valid
             // state for our purposes — proceed.
-            Err(CryptokiError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => {}
+            Ok(()) | Err(CryptokiError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => {}
             Err(e) => return Err(Pkcs11Error::LoginFailed(e)),
         }
         Ok(Self { ctx, slot, session })
@@ -81,6 +87,10 @@ impl Pkcs11Session {
     }
 
     /// Read the token's label (useful for diagnostics and signer naming).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::Pkcs11`] if `get_token_info` fails.
     pub fn token_label(&self) -> Result<String, Pkcs11Error> {
         let info = self.ctx.get_token_info(self.slot)?;
         Ok(info.label().trim().to_string())

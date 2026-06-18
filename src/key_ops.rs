@@ -9,7 +9,7 @@
 //! 2. `CKO_PUBLIC_KEY` — matching secp256k1 public key (for fast lookup).
 //!    Labeled `asterism/v1/{label}/pub`.
 //! 3. `CKO_DATA` — a serialized [`SignerKeyMaterial`] holding the chain
-//!    code and metadata (derivation path, fingerprint, created_at).
+//!    code and metadata (derivation path, fingerprint, `created_at`).
 //!    Labeled `asterism/v1/{label}/material`.
 //!
 //! Why store the chain code on-token? The chain code is *public* (it's
@@ -21,6 +21,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bitcoin::bip32::{ChainCode, ChildNumber, DerivationPath, Fingerprint, Xpub};
+use bitcoin::secp256k1::rand::RngCore;
 use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey, rand::rngs::OsRng};
 use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHandle};
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,11 @@ pub struct SignerKeyMaterial {
 
 impl SignerKeyMaterial {
     /// Decode the chain code from its hex form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::Backend`] if [`Self::chain_code_hex`] is not
+    /// valid hex or doesn't decode to exactly 32 bytes.
     pub fn chain_code(&self) -> Result<ChainCode, Pkcs11Error> {
         let bytes = hex::decode(&self.chain_code_hex)
             .map_err(|e| Pkcs11Error::Backend(format!("chain code hex: {e}")))?;
@@ -61,6 +67,11 @@ impl SignerKeyMaterial {
     }
 
     /// Decode the fingerprint from its hex form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::Backend`] if [`Self::fingerprint`] is not valid
+    /// hex or doesn't decode to exactly 4 bytes.
     pub fn fingerprint(&self) -> Result<Fingerprint, Pkcs11Error> {
         let bytes = hex::decode(&self.fingerprint)
             .map_err(|e| Pkcs11Error::Backend(format!("fingerprint hex: {e}")))?;
@@ -76,6 +87,11 @@ impl SignerKeyMaterial {
     }
 
     /// Parse the derivation path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Pkcs11Error::Backend`] if [`Self::derivation_path`] does
+    /// not parse as a valid BIP-32 path.
     pub fn derivation_path(&self) -> Result<DerivationPath, Pkcs11Error> {
         self.derivation_path
             .parse()
@@ -105,10 +121,18 @@ const PREFIX: &str = "asterism/v1";
 /// `OBJECT_IDENTIFIER (06 05 2B 81 04 00 0A) = 1.3.132.0.10`.
 pub const SECP256K1_OID_DER: &[u8] = &[0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A];
 
-/// Generate a fresh secp256k1 keypair on the token plus a random chain code,
-/// and persist them under `asterism/v1/{label}/...` labels. Returns the
-/// resulting [`LoadedKey`] so the caller can immediately build a
-/// [`crate::Pkcs11Signer`].
+/// Generate a fresh secp256k1 keypair on the token.
+///
+/// Also writes a random chain code and persists them under
+/// `asterism/v1/{label}/...` labels. Returns the resulting [`LoadedKey`] so
+/// the caller can immediately build a [`crate::Pkcs11Signer`].
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::InvalidConfig`] if a key with `label` already
+/// exists, [`Pkcs11Error::Pkcs11`] if the underlying token rejects any
+/// `create_object` call, or [`Pkcs11Error::Serialization`] if the
+/// [`SignerKeyMaterial`] cannot be serialized.
 pub fn generate_key(
     session: &Pkcs11Session,
     label: &str,
@@ -137,7 +161,6 @@ pub fn generate_key(
 
     // Random 32-byte chain code.
     let mut chain_code_bytes = [0u8; 32];
-    use bitcoin::secp256k1::rand::RngCore;
     OsRng.fill_bytes(&mut chain_code_bytes);
 
     // Compute master fingerprint: hash160 of compressed pubkey, first 4 bytes.
@@ -179,7 +202,7 @@ pub fn generate_key(
         Attribute::Verify(true),
         Attribute::Label(pub_label.as_bytes().to_vec()),
         Attribute::EcParams(SECP256K1_OID_DER.to_vec()),
-        Attribute::EcPoint(ec_point_der.clone()),
+        Attribute::EcPoint(ec_point_der),
     ];
     let public_key_handle = session_handle
         .create_object(&pub_attrs)
@@ -191,12 +214,11 @@ pub fn generate_key(
         label: label.to_string(),
         chain_code_hex: hex::encode(chain_code_bytes),
         fingerprint: fp.to_string(),
-        derivation_path: format!("m/{}", derivation_path),
+        derivation_path: format!("m/{derivation_path}"),
         network: network.to_string(),
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+            .map_or(0, |d| d.as_secs()),
     };
     let material_bytes =
         serde_json::to_vec(&material).map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
@@ -223,6 +245,16 @@ pub fn generate_key(
 
 /// Look up a previously-generated key by label. Returns `None` if the key
 /// doesn't exist.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if any underlying `find_objects` /
+/// `get_attributes` call fails, [`Pkcs11Error::Ambiguous`] if multiple keys
+/// share the same label, [`Pkcs11Error::ObjectNotFound`] if a referenced
+/// component (public key handle, material, EC point) is missing,
+/// [`Pkcs11Error::Serialization`] if the material payload doesn't decode,
+/// or [`Pkcs11Error::Secp256k1`] if the EC point bytes don't form a valid
+/// public key.
 pub fn find_key_by_label(
     session: &Pkcs11Session,
     label: &str,
@@ -315,18 +347,29 @@ pub fn find_key_by_label(
 /// Note: the resulting xpub does not have a parent fingerprint set (it's
 /// treated as a synthetic master xpub-at-derivation-path). Consumers that
 /// need parent metadata must derive it from a separate path.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Backend`] if the chain code or derivation path
+/// stored in `loaded.material` is malformed.
+///
+/// # Panics
+///
+/// Panics if the loaded derivation path has depth greater than 255 — BIP-32
+/// caps depth at one byte, so this is a corruption-of-stored-state guard.
 pub fn derive_xpub(loaded: &LoadedKey) -> Result<Xpub, Pkcs11Error> {
     let chain_code = loaded.material.chain_code()?;
     let path = loaded.material.derivation_path()?;
-    let depth = path.len() as u8;
+    let depth = u8::try_from(path.len()).expect("BIP32 depth fits u8 (max 255)");
     let child_number = path
         .as_ref()
         .last()
         .copied()
         .unwrap_or(ChildNumber::Normal { index: 0 });
-    let network = match loaded.material.network.as_str() {
-        "bitcoin" => bitcoin::NetworkKind::Main,
-        _ => bitcoin::NetworkKind::Test,
+    let network = if loaded.material.network.as_str() == "bitcoin" {
+        bitcoin::NetworkKind::Main
+    } else {
+        bitcoin::NetworkKind::Test
     };
     Ok(Xpub {
         network,
@@ -340,6 +383,11 @@ pub fn derive_xpub(loaded: &LoadedKey) -> Result<Xpub, Pkcs11Error> {
 
 /// Delete every Asterism object associated with `label` from the token.
 /// Used by integration test helpers and migration tooling.
+///
+/// # Errors
+///
+/// Returns [`Pkcs11Error::Pkcs11`] if the underlying token rejects any of
+/// the `find_objects` / `destroy_object` calls.
 pub fn delete_key(session: &Pkcs11Session, label: &str) -> Result<(), Pkcs11Error> {
     let session_handle = session.session();
     for suffix in ["priv", "pub", "material"] {
@@ -383,14 +431,14 @@ fn der_encode_octet_string(content: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(content.len() + 4);
     out.push(0x04); // OCTET STRING tag
     if content.len() < 0x80 {
-        out.push(content.len() as u8);
+        out.push(u8::try_from(content.len()).expect("len < 0x80 fits u8"));
     } else if content.len() < 0x100 {
         out.push(0x81);
-        out.push(content.len() as u8);
+        out.push(u8::try_from(content.len()).expect("len < 0x100 fits u8"));
     } else {
         out.push(0x82);
-        out.push((content.len() >> 8) as u8);
-        out.push((content.len() & 0xff) as u8);
+        out.push(u8::try_from(content.len() >> 8).expect("len >> 8 < 0x100 for OCTET STRING"));
+        out.push(u8::try_from(content.len() & 0xff).expect("low byte fits u8"));
     }
     out.extend_from_slice(content);
     out
