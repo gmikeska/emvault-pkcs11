@@ -83,10 +83,7 @@ mod tests {
 
     #[test]
     fn slot_identifier_round_trips() {
-        let cases = [
-            SlotIdentifier::label("foo"),
-            SlotIdentifier::slot_id(7),
-        ];
+        let cases = [SlotIdentifier::label("foo"), SlotIdentifier::slot_id(7)];
         for c in &cases {
             let json = serde_json::to_string(c).unwrap();
             let parsed: SlotIdentifier = serde_json::from_str(&json).unwrap();
@@ -106,18 +103,35 @@ mod tests {
         }
         // Empty environment → error.
         assert!(Pkcs11Config::from_env().is_err());
-        unsafe { std::env::set_var("PKCS11_LIB", "/tmp/fake.so"); }
+        unsafe {
+            std::env::set_var("PKCS11_LIB", "/tmp/fake.so");
+        }
         let cfg = Pkcs11Config::from_env().unwrap();
         assert_eq!(cfg.library_path, std::path::PathBuf::from("/tmp/fake.so"));
-        unsafe { std::env::remove_var("PKCS11_LIB"); }
+        unsafe {
+            std::env::remove_var("PKCS11_LIB");
+        }
         unsafe {
             std::env::set_var("SOFTHSM2_LIB", "/tmp/softhsm.so");
         }
         let cfg = Pkcs11Config::from_env().unwrap();
-        assert_eq!(cfg.library_path, std::path::PathBuf::from("/tmp/softhsm.so"));
+        assert_eq!(
+            cfg.library_path,
+            std::path::PathBuf::from("/tmp/softhsm.so")
+        );
         // Restore prior env.
-        unsafe { std::env::remove_var("SOFTHSM2_LIB"); }
-        if let Some(v) = prev_softhsm { unsafe { std::env::set_var("SOFTHSM2_LIB", v); } }
-        if let Some(v) = prev_pkcs11 { unsafe { std::env::set_var("PKCS11_LIB", v); } }
+        unsafe {
+            std::env::remove_var("SOFTHSM2_LIB");
+        }
+        if let Some(v) = prev_softhsm {
+            unsafe {
+                std::env::set_var("SOFTHSM2_LIB", v);
+            }
+        }
+        if let Some(v) = prev_pkcs11 {
+            unsafe {
+                std::env::set_var("PKCS11_LIB", v);
+            }
+        }
     }
 }

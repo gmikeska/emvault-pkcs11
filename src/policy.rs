@@ -85,12 +85,9 @@ impl MinimalHsmPolicy {
             // Convert whitelist (NetworkUnchecked) to checked-for-this-network.
             let mut allowed_scripts = Vec::with_capacity(whitelist.len());
             for addr in whitelist {
-                let addr = addr
-                    .clone()
-                    .require_network(network)
-                    .map_err(|e| Pkcs11Error::Bitcoin(format!(
-                        "whitelist address not on network {network}: {e}"
-                    )))?;
+                let addr = addr.clone().require_network(network).map_err(|e| {
+                    Pkcs11Error::Bitcoin(format!("whitelist address not on network {network}: {e}"))
+                })?;
                 allowed_scripts.push(addr.script_pubkey());
             }
             for output in &psbt.unsigned_tx.output {
@@ -143,10 +140,7 @@ fn sigrate_label(label: &str) -> String {
 
 /// Read the policy from the token. Returns [`MinimalHsmPolicy::permissive`]
 /// if no policy object is present.
-pub fn load_policy(
-    session: &Pkcs11Session,
-    label: &str,
-) -> Result<MinimalHsmPolicy, Pkcs11Error> {
+pub fn load_policy(session: &Pkcs11Session, label: &str) -> Result<MinimalHsmPolicy, Pkcs11Error> {
     let s = session.session();
     let handles = s
         .find_objects(&[
@@ -187,8 +181,8 @@ pub fn save_policy(
     for h in existing {
         s.destroy_object(h).map_err(Pkcs11Error::Pkcs11)?;
     }
-    let bytes = serde_json::to_vec(policy)
-        .map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
+    let bytes =
+        serde_json::to_vec(policy).map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
     let attrs = vec![
         Attribute::Class(ObjectClass::DATA),
         Attribute::Token(true),
@@ -202,10 +196,7 @@ pub fn save_policy(
 
 /// Read the sig-rate counter, returning a fresh empty counter if no object
 /// exists yet.
-pub fn load_sigrate(
-    session: &Pkcs11Session,
-    label: &str,
-) -> Result<SigRateCounter, Pkcs11Error> {
+pub fn load_sigrate(session: &Pkcs11Session, label: &str) -> Result<SigRateCounter, Pkcs11Error> {
     let s = session.session();
     let handles = s
         .find_objects(&[
@@ -245,8 +236,8 @@ pub fn save_sigrate(
     for h in existing {
         s.destroy_object(h).map_err(Pkcs11Error::Pkcs11)?;
     }
-    let bytes = serde_json::to_vec(counter)
-        .map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
+    let bytes =
+        serde_json::to_vec(counter).map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
     let attrs = vec![
         Attribute::Class(ObjectClass::DATA),
         Attribute::Token(true),
@@ -291,8 +282,7 @@ pub fn check_and_record_sigrate(
 mod tests {
     use super::*;
     use bitcoin::{
-        absolute, hashes::Hash, transaction, Network, OutPoint, Sequence, Transaction, TxIn,
-        TxOut,
+        Network, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, hashes::Hash, transaction,
     };
 
     fn psbt_with_outputs(outs: Vec<TxOut>) -> Psbt {
@@ -311,7 +301,9 @@ mod tests {
     }
 
     fn dummy_addr() -> Address<bitcoin::address::NetworkUnchecked> {
-        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx".parse().unwrap()
+        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+            .parse()
+            .unwrap()
     }
 
     #[test]
@@ -347,9 +339,8 @@ mod tests {
             ..Default::default()
         };
         // Build a different valid P2WPKH address from a hand-crafted hash.
-        let other_script = bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array(
-            [9u8; 20],
-        ));
+        let other_script =
+            bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::from_byte_array([9u8; 20]));
         let psbt = psbt_with_outputs(vec![TxOut {
             value: Amount::from_sat(100),
             script_pubkey: other_script,

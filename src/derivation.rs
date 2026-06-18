@@ -36,10 +36,7 @@ pub trait Bip32DerivationStrategy: Send + Sync + std::fmt::Debug {
     fn name(&self) -> &'static str;
 
     /// Build the descriptor key for the federation descriptor.
-    fn descriptor_key(
-        &self,
-        ctx: &SignerContext<'_>,
-    ) -> Result<DescriptorPublicKey, Pkcs11Error>;
+    fn descriptor_key(&self, ctx: &SignerContext<'_>) -> Result<DescriptorPublicKey, Pkcs11Error>;
 
     /// Sign `sighash` for an input whose BIP-32 derivation path is
     /// `input_derivation`. Implementations that don't support BIP-32
@@ -90,10 +87,7 @@ impl Bip32DerivationStrategy for FixedKey {
         "FixedKey"
     }
 
-    fn descriptor_key(
-        &self,
-        ctx: &SignerContext<'_>,
-    ) -> Result<DescriptorPublicKey, Pkcs11Error> {
+    fn descriptor_key(&self, ctx: &SignerContext<'_>) -> Result<DescriptorPublicKey, Pkcs11Error> {
         let pk = bitcoin::PublicKey::new(ctx.public_key);
         Ok(DescriptorPublicKey::Single(
             miniscript::descriptor::SinglePub {
@@ -160,10 +154,7 @@ impl Bip32DerivationStrategy for HsmNativeBip32 {
         "HsmNativeBip32"
     }
 
-    fn descriptor_key(
-        &self,
-        ctx: &SignerContext<'_>,
-    ) -> Result<DescriptorPublicKey, Pkcs11Error> {
+    fn descriptor_key(&self, ctx: &SignerContext<'_>) -> Result<DescriptorPublicKey, Pkcs11Error> {
         self.ensure_supported(ctx)?;
         // For an HD-capable HSM the descriptor uses an xpub. We synthesize
         // the xpub from the master pubkey + chain code; downstream BDK
@@ -183,12 +174,14 @@ impl Bip32DerivationStrategy for HsmNativeBip32 {
             public_key: ctx.public_key,
             chain_code: ctx.chain_code,
         };
-        Ok(DescriptorPublicKey::XPub(miniscript::descriptor::DescriptorXKey {
-            origin: Some((ctx.fingerprint, ctx.derivation_path.clone())),
-            xkey: xpub,
-            derivation_path: bitcoin::bip32::DerivationPath::default(),
-            wildcard: miniscript::descriptor::Wildcard::Unhardened,
-        }))
+        Ok(DescriptorPublicKey::XPub(
+            miniscript::descriptor::DescriptorXKey {
+                origin: Some((ctx.fingerprint, ctx.derivation_path.clone())),
+                xkey: xpub,
+                derivation_path: bitcoin::bip32::DerivationPath::default(),
+                wildcard: miniscript::descriptor::Wildcard::Unhardened,
+            },
+        ))
     }
 
     fn sign_input(
@@ -235,10 +228,7 @@ impl Bip32DerivationStrategy for SoftwareTweakDev {
         "SoftwareTweakDev"
     }
 
-    fn descriptor_key(
-        &self,
-        ctx: &SignerContext<'_>,
-    ) -> Result<DescriptorPublicKey, Pkcs11Error> {
+    fn descriptor_key(&self, ctx: &SignerContext<'_>) -> Result<DescriptorPublicKey, Pkcs11Error> {
         eprintln!(
             "[asterism-pkcs11] WARNING: SoftwareTweakDev derivation strategy in use. \
              This violates the project's security model and must never be enabled in production."
@@ -257,12 +247,14 @@ impl Bip32DerivationStrategy for SoftwareTweakDev {
             public_key: ctx.public_key,
             chain_code: ctx.chain_code,
         };
-        Ok(DescriptorPublicKey::XPub(miniscript::descriptor::DescriptorXKey {
-            origin: Some((ctx.fingerprint, ctx.derivation_path.clone())),
-            xkey: xpub,
-            derivation_path: bitcoin::bip32::DerivationPath::default(),
-            wildcard: miniscript::descriptor::Wildcard::Unhardened,
-        }))
+        Ok(DescriptorPublicKey::XPub(
+            miniscript::descriptor::DescriptorXKey {
+                origin: Some((ctx.fingerprint, ctx.derivation_path.clone())),
+                xkey: xpub,
+                derivation_path: bitcoin::bip32::DerivationPath::default(),
+                wildcard: miniscript::descriptor::Wildcard::Unhardened,
+            },
+        ))
     }
 
     fn sign_input(

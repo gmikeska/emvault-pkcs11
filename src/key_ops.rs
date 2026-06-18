@@ -21,7 +21,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bitcoin::bip32::{ChainCode, ChildNumber, DerivationPath, Fingerprint, Xpub};
-use bitcoin::secp256k1::{rand::rngs::OsRng, PublicKey, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey, rand::rngs::OsRng};
 use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHandle};
 use serde::{Deserialize, Serialize};
 
@@ -79,7 +79,9 @@ impl SignerKeyMaterial {
     pub fn derivation_path(&self) -> Result<DerivationPath, Pkcs11Error> {
         self.derivation_path
             .parse()
-            .map_err(|e: bitcoin::bip32::Error| Pkcs11Error::Backend(format!("derivation path: {e}")))
+            .map_err(|e: bitcoin::bip32::Error| {
+                Pkcs11Error::Backend(format!("derivation path: {e}"))
+            })
     }
 }
 
@@ -196,8 +198,8 @@ pub fn generate_key(
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
-    let material_bytes = serde_json::to_vec(&material)
-        .map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
+    let material_bytes =
+        serde_json::to_vec(&material).map_err(|e| Pkcs11Error::Serialization(e.to_string()))?;
     let mat_attrs = vec![
         Attribute::Class(ObjectClass::DATA),
         Attribute::Token(true),
@@ -296,8 +298,8 @@ pub fn find_key_by_label(
         })
         .ok_or_else(|| Pkcs11Error::ObjectNotFound(format!("{pub_label}/ec_point")))?;
     let raw_point = der_decode_octet_string(&ec_point)?;
-    let public_key = PublicKey::from_slice(&raw_point)
-        .map_err(|e| Pkcs11Error::Secp256k1(e.to_string()))?;
+    let public_key =
+        PublicKey::from_slice(&raw_point).map_err(|e| Pkcs11Error::Secp256k1(e.to_string()))?;
 
     Ok(Some(LoadedKey {
         private_key,
@@ -355,7 +357,9 @@ pub fn delete_key(session: &Pkcs11Session, label: &str) -> Result<(), Pkcs11Erro
             ])
             .map_err(Pkcs11Error::Pkcs11)?;
         for h in handles {
-            session_handle.destroy_object(h).map_err(Pkcs11Error::Pkcs11)?;
+            session_handle
+                .destroy_object(h)
+                .map_err(Pkcs11Error::Pkcs11)?;
         }
     }
     Ok(())

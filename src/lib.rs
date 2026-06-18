@@ -63,9 +63,9 @@ pub use cryptoki;
 pub use miniscript;
 
 pub use config::{Pkcs11Config, SlotIdentifier};
-pub use derivation::{Bip32DerivationStrategy, FixedKey, HsmNativeBip32};
 #[cfg(feature = "dev-derivation")]
 pub use derivation::SoftwareTweakDev;
+pub use derivation::{Bip32DerivationStrategy, FixedKey, HsmNativeBip32};
 pub use error::Pkcs11Error;
 pub use policy::MinimalHsmPolicy;
 pub use session::Pkcs11Session;

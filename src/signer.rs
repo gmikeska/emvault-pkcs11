@@ -10,18 +10,18 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use asterism_core::{
-    error::SignerError, network::NetworkType, signer::SignerHealth, Signer, SignerCapabilities,
-    SignerId, SignerType, TransportType,
+    Signer, SignerCapabilities, SignerId, SignerType, TransportType, error::SignerError,
+    network::NetworkType, signer::SignerHealth,
 };
+use bdk_wallet::SignOptions;
 use bdk_wallet::signer::{
     SignerCommon, SignerError as BdkSignerError, SignerId as BdkSignerId, TransactionSigner,
 };
-use bdk_wallet::SignOptions;
-use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
-use bitcoin::secp256k1::{All, Secp256k1};
-use bitcoin::hashes::Hash;
-use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin::Psbt;
+use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{All, Secp256k1};
+use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use miniscript::DescriptorPublicKey;
 
 use crate::derivation::{Bip32DerivationStrategy, FixedKey, SignerContext};
@@ -316,9 +316,7 @@ impl TransactionSigner for Pkcs11Signer {
                 .as_ref()
                 .map(|u| u.value)
                 .ok_or_else(|| {
-                    BdkSignerError::External(format!(
-                        "input {input_idx} missing witness_utxo"
-                    ))
+                    BdkSignerError::External(format!("input {input_idx} missing witness_utxo"))
                 })?;
 
             let sighash = SighashCache::new(&psbt.unsigned_tx)

@@ -17,11 +17,9 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::{
-    federation::Federation, network::NetworkType, signer::SignerType, Signer,
-};
+use asterism_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
 use asterism_pkcs11::{
-    key_ops, policy, MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier,
+    MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops, policy,
 };
 use bitcoin::bip32::DerivationPath;
 use serial_test::serial;
@@ -90,8 +88,8 @@ fn generates_key_and_exports_xpub() {
     reset_label(&s, label);
 
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer = Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet)
-        .expect("generate key");
+    let signer =
+        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
 
     assert_eq!(signer.signer_type(), SignerType::Software);
     assert_eq!(
@@ -141,8 +139,9 @@ fn three_of_five_federation_construction_from_dev_tokens() {
         signers.push(Box::new(signer));
     }
 
-    let fed: Federation = Federation::new(3, signers, NetworkType::Bitcoin(bitcoin::Network::Testnet))
-        .expect("3-of-5 federation");
+    let fed: Federation =
+        Federation::new(3, signers, NetworkType::Bitcoin(bitcoin::Network::Testnet))
+            .expect("3-of-5 federation");
     assert_eq!(fed.threshold(), 3);
     assert_eq!(fed.signers().len(), 5);
 
@@ -163,8 +162,8 @@ fn minimal_hsm_policy_round_trip() {
     reset_label(&s, label);
 
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer = Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet)
-        .expect("generate key");
+    let signer =
+        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
 
     // Default policy is permissive.
     let p0 = signer.policy().expect("read policy");
@@ -184,15 +183,15 @@ fn minimal_hsm_policy_round_trip() {
 #[test]
 #[serial]
 fn minimal_hsm_policy_rejects_oversized_psbt() {
-    use bitcoin::{absolute, transaction, Amount, OutPoint, Sequence, Transaction, TxIn, TxOut};
+    use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
 
     let s = test_session();
     let label = "integration-policy-reject";
     reset_label(&s, label);
 
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer = Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet)
-        .expect("generate key");
+    let signer =
+        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
     signer
         .set_policy(&MinimalHsmPolicy {
             per_transaction_limit: Some(Amount::from_sat(500)),
@@ -201,7 +200,9 @@ fn minimal_hsm_policy_rejects_oversized_psbt() {
         .expect("set policy");
 
     let dummy_addr: bitcoin::Address<bitcoin::address::NetworkUnchecked> =
-        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx".parse().unwrap();
+        "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+            .parse()
+            .unwrap();
     let tx = Transaction {
         version: transaction::Version::TWO,
         lock_time: absolute::LockTime::ZERO,
@@ -235,8 +236,8 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     // descriptor from a Pkcs11Signer, register the signer with a BDK
     // Wallet, and ensure that calling `Wallet::sign` walks the PSBT and
     // produces a partial signature for our fingerprint.
-    use bdk_wallet::signer::{SignerCommon, TransactionSigner};
     use bdk_wallet::SignOptions;
+    use bdk_wallet::signer::{SignerCommon, TransactionSigner};
     use bitcoin::secp256k1::Secp256k1;
 
     let s = test_session();
@@ -244,8 +245,8 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     reset_label(&s, label);
 
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer = Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet)
-        .expect("generate key");
+    let signer =
+        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
 
     let secp = Secp256k1::new();
     let id = SignerCommon::id(&signer, &secp);
@@ -254,9 +255,7 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     // Build a fake P2WSH input that references our pubkey + fingerprint via
     // PSBT bip32_derivation. We don't expect full finalization here — just
     // that the signer inserts a partial_sig.
-    use bitcoin::{
-        absolute, transaction, Amount, OutPoint, Sequence, Transaction, TxIn, TxOut,
-    };
+    use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
     let secp_pk = signer.xpub().public_key;
     let pk = bitcoin::PublicKey::new(secp_pk);
     let witness_script = bitcoin::ScriptBuf::builder()
