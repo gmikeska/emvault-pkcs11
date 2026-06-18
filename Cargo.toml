@@ -12,6 +12,9 @@ integration = []
 # Enable software-side BIP32 derivation for development. Master keys must be
 # CKA_EXTRACTABLE=true. NEVER enable in production.
 dev-derivation = []
+# Enable RPC tests against an external bitcoind via .env (BITCOIN_RPC_*).
+# Combine with `integration` for HSM-backed federation cross-checks.
+node-tests = []
 
 [dependencies]
 asterism-core = { version = "0.1.0", path = "../asterism-core" }
@@ -30,3 +33,4 @@ asterism-core = { path = "../asterism-core", features = ["test-utils"] }
 dotenvy = "0.15.7"
 serial_test = "3.5.0"
 tempfile = "3.27.0"
+ureq = { version = "2.10", features = ["json"] }

@@ -138,6 +138,9 @@ signatures are collected, the consumer calls `Wallet::finalize_psbt()`
 - `dev-derivation` — enables [`derivation::SoftwareTweakDev`], a
   development-only strategy that derives child *private* keys in software.
   **Violates the security boundary**; never enable in production.
+- `node-tests` — enables `tests/node_pkcs11_cross_check.rs`, which builds
+  HSM-backed federations and cross-validates descriptors / addresses
+  against a running Bitcoin Core node via `BITCOIN_RPC_*` from `.env`.
 
 ## Testing
 
@@ -148,13 +151,18 @@ cargo test -p asterism-pkcs11
 # Integration tests (require SoftHSMv2 with asterism-test + dev tokens):
 cargo test -p asterism-pkcs11 --features integration -- --test-threads=1
 
+# HSM + bitcoind cross-validation (also requires BITCOIN_RPC_* in .env):
+cargo test -p asterism-pkcs11 --features "integration node-tests" \
+  --test node_pkcs11_cross_check -- --nocapture
+
 # Doc build:
 cargo doc -p asterism-pkcs11 --no-deps
 ```
 
 The integration tests read HSM credentials from `../asterism-core/.env`
 (via `dotenvy`) and serialize access via `serial_test::serial` so the
-shared SoftHSMv2 token state is stable across runs.
+shared SoftHSMv2 token state is stable across runs. `node-tests` skip
+gracefully when the bitcoind RPC endpoint is unreachable.
 
 ## License
 
