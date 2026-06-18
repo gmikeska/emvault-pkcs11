@@ -20,9 +20,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::{
-    Federation, Signer, TaprootFederationBuilder, network::NetworkType,
-};
+use asterism_core::{Federation, Signer, TaprootFederationBuilder, network::NetworkType};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
@@ -142,8 +140,8 @@ fn pkcs11_3of5_descriptor_matches_bitcoin_core() {
     for idx in 1..=5u8 {
         let s = dev_session(idx);
         reset_label(&s, label);
-        let signer = Pkcs11Signer::generate(s, label, &path, Network::Testnet)
-            .expect("generate dev key");
+        let signer =
+            Pkcs11Signer::generate(s, label, &path, Network::Testnet).expect("generate dev key");
         signers.push(Box::new(signer));
     }
 
@@ -153,7 +151,9 @@ fn pkcs11_3of5_descriptor_matches_bitcoin_core() {
     assert_eq!(fed.signers().len(), 5);
 
     let local_desc = fed.descriptor_string().to_string();
-    let info = rpc.getdescriptorinfo(&local_desc).expect("getdescriptorinfo");
+    let info = rpc
+        .getdescriptorinfo(&local_desc)
+        .expect("getdescriptorinfo");
     assert!(!info.isrange, "Fixed-mode pkcs11 federation is non-ranged");
     assert_descriptors_equivalent(&local_desc, &info.descriptor);
     if let Some((_, expected_ck)) = local_desc.split_once('#') {
@@ -206,9 +206,8 @@ fn pkcs11_taproot_mast_matches_bitcoin_core() {
         wallet_signers.push(signer);
     }
 
-    let mut b = TaprootFederationBuilder::<Pkcs11Signer>::new(NetworkType::Bitcoin(
-        Network::Testnet,
-    ));
+    let mut b =
+        TaprootFederationBuilder::<Pkcs11Signer>::new(NetworkType::Bitcoin(Network::Testnet));
     for s in hsm_signers {
         b.add_hsm_signer(s);
     }

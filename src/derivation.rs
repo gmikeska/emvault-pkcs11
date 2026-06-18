@@ -174,8 +174,7 @@ impl Bip32DerivationStrategy for HsmNativeBip32 {
         // wallets will derive child pubkeys locally for address
         // generation, then ask the HSM to sign using its child-key
         // derivation mechanism.
-        let depth =
-            u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
+        let depth = u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
         let xpub = bitcoin::bip32::Xpub {
             network: bitcoin::NetworkKind::Test,
             depth,
@@ -249,8 +248,7 @@ impl Bip32DerivationStrategy for SoftwareTweakDev {
              This violates the project's security model and must never be enabled in production."
         );
         // Same shape as HsmNativeBip32: emit an xpub.
-        let depth =
-            u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
+        let depth = u8::try_from(ctx.derivation_path.len()).expect("BIP32 depth fits u8 (max 255)");
         let xpub = bitcoin::bip32::Xpub {
             network: bitcoin::NetworkKind::Test,
             depth,
