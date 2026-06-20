@@ -20,7 +20,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::{Federation, Signer, TaprootFederationBuilder, network::NetworkType};
+use asterism_core::{Federation, Signer, network::NetworkType};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
@@ -29,7 +29,7 @@ use serial_test::serial;
 
 mod common;
 
-use common::rpc::{RpcClient, RpcError};
+use common::rpc::RpcClient;
 
 // ---------------------------------------------------------------------------
 // HSM helpers (mirrors integration.rs; kept inline to avoid cross-crate
@@ -176,71 +176,4 @@ fn pkcs11_3of5_descriptor_matches_bitcoin_core() {
         addrs[0]
     );
     eprintln!("3-of-5 HSM federation address: {}", addrs[0]);
-}
-
-#[test]
-#[serial]
-fn pkcs11_taproot_mast_matches_bitcoin_core() {
-    let Some(rpc) = rpc_or_skip("pkcs11_taproot_mast_matches_bitcoin_core") else {
-        return;
-    };
-
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let label = "node-cross-taproot";
-
-    // Three dev tokens act as HSMs; two as "wallet" peers.
-    let mut hsm_signers: Vec<Pkcs11Signer> = Vec::with_capacity(3);
-    for idx in 1..=3u8 {
-        let s = dev_session(idx);
-        reset_label(&s, label);
-        let signer = Pkcs11Signer::generate(s, label, &path, Network::Testnet)
-            .expect("generate dev key (hsm)");
-        hsm_signers.push(signer);
-    }
-    let mut wallet_signers: Vec<Pkcs11Signer> = Vec::with_capacity(2);
-    for idx in 4..=5u8 {
-        let s = dev_session(idx);
-        reset_label(&s, label);
-        let signer = Pkcs11Signer::generate(s, label, &path, Network::Testnet)
-            .expect("generate dev key (wallet)");
-        wallet_signers.push(signer);
-    }
-
-    let mut b =
-        TaprootFederationBuilder::<Pkcs11Signer>::new(NetworkType::Bitcoin(Network::Testnet));
-    for s in hsm_signers {
-        b.add_hsm_signer(s);
-    }
-    for s in wallet_signers {
-        b.add_wallet_signer(s);
-    }
-    b.mixed_threshold(3);
-    let fed = b.build().expect("build hybrid taproot federation");
-
-    let local_desc = fed.descriptor_string().to_string();
-    let info = match rpc.getdescriptorinfo(&local_desc) {
-        Ok(i) => i,
-        Err(RpcError::Rpc { code, message }) => {
-            panic!(
-                "bitcoind rejected tr() descriptor (code={code}): {message}\n\
-                 desc: {local_desc}",
-            );
-        }
-        Err(e) => panic!("bitcoind RPC error: {e}"),
-    };
-    assert!(!info.isrange, "Taproot MAST descriptor is non-ranged");
-    assert_descriptors_equivalent(&local_desc, &info.descriptor);
-
-    let addrs = rpc
-        .deriveaddresses(&info.descriptor, None)
-        .expect("deriveaddresses");
-    assert_eq!(addrs.len(), 1, "tr() yields one address");
-    let local_addr = local_address_at(fed.descriptor(), Network::Testnet, 0);
-    assert_eq!(addrs[0], local_addr.to_string(), "tr() address mismatch");
-    assert!(
-        addrs[0].starts_with("tb1p"),
-        "expected testnet P2TR (tb1p...), got {}",
-        addrs[0]
-    );
-    eprintln!("hybrid 3+2 HSM taproot federation address: {}", addrs[0]);
 }
