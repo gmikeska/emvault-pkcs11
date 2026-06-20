@@ -57,6 +57,8 @@
 pub mod config;
 pub mod derivation;
 pub mod ecdsa;
+#[cfg(feature = "elements")]
+pub mod elements;
 pub mod error;
 pub mod key_ops;
 pub mod policy;

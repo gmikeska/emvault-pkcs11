@@ -46,10 +46,10 @@ pub struct Pkcs11Signer {
     inner: Arc<Mutex<Pkcs11SignerInner>>,
 }
 
-struct Pkcs11SignerInner {
-    session: Pkcs11Session,
-    loaded: LoadedKey,
-    derivation: Box<dyn Bip32DerivationStrategy>,
+pub(crate) struct Pkcs11SignerInner {
+    pub(crate) session: Pkcs11Session,
+    pub(crate) loaded: LoadedKey,
+    pub(crate) derivation: Box<dyn Bip32DerivationStrategy>,
 }
 
 impl std::fmt::Debug for Pkcs11Signer {
@@ -160,7 +160,12 @@ impl Pkcs11Signer {
         let descriptor_key = derivation.descriptor_key(&ctx)?;
 
         let capabilities = SignerCapabilities {
-            blind_signing: false,
+            // `blind_signing` advertises that the signer can produce
+            // signatures over confidential-transaction sighashes. The
+            // HSM's ECDSA path is identical for Bitcoin and Liquid; LWK
+            // does the actual blinding software-side. We advertise the
+            // capability whenever the `elements` feature is compiled in.
+            blind_signing: cfg!(feature = "elements"),
             taproot: true,
             musig2: false,
             transports: vec![TransportType::Pkcs11],
@@ -189,6 +194,32 @@ impl Pkcs11Signer {
     /// descriptor.
     pub fn descriptor_key(&self) -> &DescriptorPublicKey {
         &self.descriptor_key
+    }
+
+    /// Borrow the signer's label as a `&str`. Internal helper for crate
+    /// modules that need it without a clone.
+    #[cfg(feature = "elements")]
+    pub(crate) fn label_str(&self) -> &str {
+        &self.label
+    }
+
+    /// Owned clone of the derivation path. Internal helper for crate
+    /// modules that build a [`SignerContext`].
+    #[cfg(feature = "elements")]
+    pub(crate) fn derivation_path_owned(&self) -> DerivationPath {
+        self.derivation_path.clone()
+    }
+
+    /// Lock the inner mutex. Internal helper exposed only to crate
+    /// modules so that the per-network signer impls can share the same
+    /// session/key bundle.
+    #[cfg(feature = "elements")]
+    pub(crate) fn inner_lock(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Pkcs11SignerInner>, &'static str> {
+        self.inner
+            .lock()
+            .map_err(|_| "Pkcs11Signer mutex poisoned")
     }
 
     /// Read the HSM-resident [`MinimalHsmPolicy`].
@@ -248,6 +279,30 @@ impl Signer for Pkcs11Signer {
         SignerType::Software
     }
     fn supported_networks(&self) -> Vec<NetworkType> {
+        // When the `elements` feature is on, also advertise the Elements
+        // network whose key material is identical to the Bitcoin one
+        // (HSMs sign with the same secp256k1 key for both networks; the
+        // distinction is purely script/address-format). This lets the
+        // same `Pkcs11Signer` participate in either a Bitcoin or a
+        // Liquid federation without a separate constructor.
+        #[cfg(feature = "elements")]
+        {
+            let mut networks = vec![NetworkType::Bitcoin(self.network)];
+            let id = match self.network {
+                bitcoin::Network::Bitcoin => Some(asterism_core::ElementsNetworkId::Liquid),
+                bitcoin::Network::Testnet => Some(asterism_core::ElementsNetworkId::LiquidTestnet),
+                bitcoin::Network::Regtest => {
+                    Some(asterism_core::ElementsNetworkId::ElementsRegtest)
+                }
+                // Signet has no canonical Liquid sibling; advertise none.
+                _ => None,
+            };
+            if let Some(id) = id {
+                networks.push(NetworkType::Elements(id));
+            }
+            networks
+        }
+        #[cfg(not(feature = "elements"))]
         vec![NetworkType::Bitcoin(self.network)]
     }
     fn capabilities(&self) -> SignerCapabilities {

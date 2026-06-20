@@ -15,12 +15,21 @@ dev-derivation = []
 # Enable RPC tests against an external bitcoind via .env (BITCOIN_RPC_*).
 # Combine with `integration` for HSM-backed federation cross-checks.
 node-tests = []
+# Enable Elements/Liquid signing on Pkcs11Signer. Activates the matching
+# `elements` feature on `asterism-core` and pulls in `asterism-elements`
+# so the HSM can produce ECDSA partial signatures over PSET inputs.
+# CT-specific operations (blinding, range proofs, surjection proofs) stay
+# software-side via LWK; the HSM only does ECDSA, identical to the
+# Bitcoin path.
+elements = ["asterism-core/elements", "dep:asterism-elements", "dep:elements"]
 
 [dependencies]
 asterism-core = { version = "0.1.0", path = "../asterism-core" }
+asterism-elements = { version = "0.1.0", path = "../asterism-elements", optional = true }
 bdk_wallet = "3.1.0"
-bitcoin = "0.32.100"
+bitcoin = "0.32.10"
 cryptoki = "0.12.0"
+elements = { version = "0.25", features = ["serde"], optional = true }
 hex = "0.4.3"
 miniscript = "12.3.7"
 secrecy = "0.10.3"
