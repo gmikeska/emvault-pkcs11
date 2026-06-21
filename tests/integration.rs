@@ -2,15 +2,20 @@
 //! (SoftHSM 2 + software BIP-32 derivation).
 //!
 //! Gated behind the `integration` feature. Reads HSM credentials from
-//! `../asterism-core/.env` via [`dotenvy`], using the same env-var
-//! contract that `asterism-dev-signer` understands:
+//! `../asterism-core/.env` via [`dotenvy`]:
 //!
 //! - `PKCS11_LIB` — path to `libasterism_dev_hsm.so`
-//! - `SOFTHSM2_LIB` — path to `libsofthsm2.so` (used by the shim)
+//! - `SOFTHSM2_LIB` — path to `libsofthsm2.so` (read by the shim)
 //! - `HSM_TEST_LABEL`, `HSM_TEST_PIN` — disposable token used for
 //!   per-test scratch state. Wiped between tests.
-//! - `HSM_DEV_{1..5}_LABEL`, `HSM_DEV_{1..5}_PIN`,
-//!   `WALLET_TEST_{1..5}_MNEMONIC` — the persistent dev federation set.
+//! - `HSM_DEV_{1..5}_LABEL`, `HSM_DEV_{1..5}_PIN` — the persistent dev
+//!   federation set.
+//!
+//! Seed material (`DEV_HSM_SLOT_{i}_MNEMONIC` env vars or a
+//! `DEV_HSM_CONFIG=...` TOML file) lives **inside the shim**. Asterism
+//! never sees a mnemonic; `derive_from_seed` is called with `&[]` and
+//! the shim substitutes the right preloaded seed for the session's
+//! slot. See `libasterism_dev_hsm/README.md`.
 //!
 //! Tests are serialized via [`serial_test`] because PKCS#11 sessions
 //! are token-locked.
@@ -29,23 +34,15 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use asterism_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
-use asterism_dev_signer::{DevBackend, mnemonic_to_seed_no_passphrase};
+use asterism_dev_signer::DevBackend;
 use asterism_pkcs11::{
     MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops, policy,
 };
 use bitcoin::bip32::DerivationPath;
-use secrecy::ExposeSecret;
 use serial_test::serial;
 
 const TEST_LABEL_ENV: &str = "HSM_TEST_LABEL";
 const TEST_PIN_ENV: &str = "HSM_TEST_PIN";
-
-/// A throwaway BIP-39 mnemonic used by per-test signers. This is a
-/// well-known BIP-39 test vector (`abandon × 11 + about`) — never put
-/// real funds at this seed.
-const TEST_MNEMONIC: &str =
-    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon \
-     about";
 
 fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -79,18 +76,16 @@ fn test_session(path: &DerivationPath) -> (Pkcs11Session, String, String) {
     (session, label, pin)
 }
 
-fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String, String, String) {
+fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String, String) {
     load_env();
     let label = std::env::var(format!("HSM_DEV_{idx}_LABEL"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_LABEL env var"));
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
-    let mnemonic = std::env::var(format!("WALLET_TEST_{idx}_MNEMONIC"))
-        .unwrap_or_else(|_| panic!("WALLET_TEST_{idx}_MNEMONIC env var"));
     let cfg = make_config(&label, &pin, path);
     let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
         .expect("open dev session");
-    (session, label, pin, mnemonic)
+    (session, label, pin)
 }
 
 /// Wipe a label off the test token so a re-running test starts clean.
@@ -116,14 +111,15 @@ fn derive_test_signer(
     label: &str,
     path: &DerivationPath,
 ) -> Pkcs11Signer {
-    let seed = mnemonic_to_seed_no_passphrase(TEST_MNEMONIC).expect("mnemonic_to_seed");
+    // Empty seed: the shim looks up the preloaded seed for the
+    // session's slot from its own configuration.
     Pkcs11Signer::derive_from_seed(
         session,
         label,
         path,
         bitcoin::Network::Testnet,
         Box::new(DevBackend),
-        seed.expose_secret().as_slice(),
+        &[],
     )
     .expect("derive_from_seed")
 }
@@ -190,20 +186,19 @@ fn three_of_five_federation_construction_from_dev_tokens() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
     let label = "fed-test-3of5";
 
-    // Each dev token has its own mnemonic (loaded from env). Derive a
-    // fresh federation key on each and roll them up into a 3-of-5.
+    // Each dev token has its own mnemonic configured inside the shim.
+    // Derive a fresh federation key on each and roll them up into a 3-of-5.
     let mut signers: Vec<Box<dyn Signer>> = Vec::with_capacity(5);
     for idx in 1..=5u8 {
-        let (s, _, _, mnemonic) = dev_session(idx, &path);
+        let (s, _, _) = dev_session(idx, &path);
         reset_label(&s, label);
-        let seed = mnemonic_to_seed_no_passphrase(&mnemonic).expect("mnemonic_to_seed");
         let signer = Pkcs11Signer::derive_from_seed(
             s,
             label,
             &path,
             bitcoin::Network::Testnet,
             Box::new(DevBackend),
-            seed.expose_secret().as_slice(),
+            &[],
         )
         .expect("derive dev signer");
         signers.push(Box::new(signer));

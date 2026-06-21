@@ -60,8 +60,7 @@ impl ElementsSigner for Pkcs11Signer {
                 continue;
             };
 
-            let segments: Vec<bitcoin::bip32::ChildNumber> =
-                input_path.as_ref().iter().copied().collect();
+            let segments: Vec<bitcoin::bip32::ChildNumber> = input_path.as_ref().to_vec();
             if segments.len() < federation_path_len {
                 return Err(PsetError::Elements(format!(
                     "input {input_idx} BIP-32 path is shorter than federation path"
