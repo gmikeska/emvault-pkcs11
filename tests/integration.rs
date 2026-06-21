@@ -71,8 +71,8 @@ fn test_session(path: &DerivationPath) -> (Pkcs11Session, String, String) {
     let label = std::env::var(TEST_LABEL_ENV).expect("HSM_TEST_LABEL env var");
     let pin = std::env::var(TEST_PIN_ENV).expect("HSM_TEST_PIN env var");
     let cfg = make_config(&label, &pin, path);
-    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
-        .expect("open test session");
+    let session =
+        Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin).expect("open test session");
     (session, label, pin)
 }
 
@@ -83,8 +83,8 @@ fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String, String
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
     let cfg = make_config(&label, &pin, path);
-    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
-        .expect("open dev session");
+    let session =
+        Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin).expect("open dev session");
     (session, label, pin)
 }
 
@@ -106,11 +106,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     }
 }
 
-fn derive_test_signer(
-    session: Pkcs11Session,
-    label: &str,
-    path: &DerivationPath,
-) -> Pkcs11Signer {
+fn derive_test_signer(session: Pkcs11Session, label: &str, path: &DerivationPath) -> Pkcs11Signer {
     // Empty seed: the shim looks up the preloaded seed for the
     // session's slot from its own configuration.
     Pkcs11Signer::derive_from_seed(

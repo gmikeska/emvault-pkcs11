@@ -318,10 +318,10 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
             }
         }
 
-        let ec_point =
-            ec_point.ok_or_else(|| HsmBackendError::MetadataError("missing CKA_EC_POINT".into()))?;
-        let chain_code =
-            chain_code.ok_or_else(|| HsmBackendError::MetadataError("missing chain code".into()))?;
+        let ec_point = ec_point
+            .ok_or_else(|| HsmBackendError::MetadataError("missing CKA_EC_POINT".into()))?;
+        let chain_code = chain_code
+            .ok_or_else(|| HsmBackendError::MetadataError("missing chain code".into()))?;
         let depth = depth.ok_or_else(|| HsmBackendError::MetadataError("missing depth".into()))?;
         let parent_fp = parent_fp
             .ok_or_else(|| HsmBackendError::MetadataError("missing parent fingerprint".into()))?;

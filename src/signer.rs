@@ -269,9 +269,7 @@ impl Pkcs11Signer {
     pub(crate) fn inner_lock(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, Pkcs11SignerInner>, &'static str> {
-        self.inner
-            .lock()
-            .map_err(|_| "Pkcs11Signer mutex poisoned")
+        self.inner.lock().map_err(|_| "Pkcs11Signer mutex poisoned")
     }
 
     /// Read the HSM-resident [`MinimalHsmPolicy`].
@@ -305,7 +303,6 @@ impl Pkcs11Signer {
         let inner = self.inner.lock().expect("Pkcs11Signer mutex poisoned");
         policy::save_policy(&inner.session, &self.label, p).map(|_| ())
     }
-
 }
 
 // ---------------------------------------------------------------------------

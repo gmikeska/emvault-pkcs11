@@ -93,7 +93,11 @@ fn pkcs11_ct_descriptor_round_trips_through_local_address_derivation() {
     }
 
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").expect("standard liquid testnet path");
-    let labels = ["asterism-elements-1", "asterism-elements-2", "asterism-elements-3"];
+    let labels = [
+        "asterism-elements-1",
+        "asterism-elements-2",
+        "asterism-elements-3",
+    ];
     let mut signers: Vec<Pkcs11Signer> = Vec::with_capacity(labels.len());
 
     for (i, label) in labels.iter().enumerate() {
@@ -129,7 +133,10 @@ fn pkcs11_ct_descriptor_round_trips_through_local_address_derivation() {
     }
     let desc = builder.build().expect("ct descriptor builds");
     let s = desc.to_string();
-    assert!(s.starts_with("ct(slip77("), "expected ct(slip77(...) prefix, got {s}");
+    assert!(
+        s.starts_with("ct(slip77("),
+        "expected ct(slip77(...) prefix, got {s}"
+    );
 
     // Derive a confidential address for Liquid Testnet at index 0.
     let secp = asterism_elements::elements_miniscript::elements::secp256k1_zkp::Secp256k1::new();

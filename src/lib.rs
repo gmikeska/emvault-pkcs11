@@ -104,11 +104,11 @@ pub use bitcoin;
 pub use cryptoki;
 pub use miniscript;
 
-pub use backend::{HsmBackend, HsmBackendError, MasterKeyHandle};
 #[cfg(feature = "thales")]
 pub use backend::ThalesBackend;
 #[cfg(feature = "utimaco")]
 pub use backend::UtimacoBackend;
+pub use backend::{HsmBackend, HsmBackendError, MasterKeyHandle};
 pub use config::{Pkcs11Config, SlotIdentifier};
 pub use error::Pkcs11Error;
 pub use policy::MinimalHsmPolicy;

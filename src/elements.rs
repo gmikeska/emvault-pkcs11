@@ -67,8 +67,7 @@ impl ElementsSigner for Pkcs11Signer {
                 )));
             }
             let relative_segments = &segments[federation_path_len..];
-            let relative_path: bitcoin::bip32::DerivationPath =
-                relative_segments.to_vec().into();
+            let relative_path: bitcoin::bip32::DerivationPath = relative_segments.to_vec().into();
 
             // v1 supports P2WSH (Segwitv0) sighashes only — the same scope
             // as the Bitcoin path. Taproot lands in Phase 2.
