@@ -143,7 +143,7 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
 
     /// Backend identity for logging and diagnostics (e.g. `"utimaco"`,
     /// `"thales"`, `"dev"`).
-    fn backend_name(&self) -> &str;
+    fn backend_name(&self) -> &'static str;
 
     // ------------------------------------------------------------------
     // Default operations — vendors override only when the mechanism
@@ -478,7 +478,7 @@ mod tests {
 
     /// Tiny stub backend used to verify the trait's default-method
     /// implementations compile cleanly and can be used through a trait
-    /// object. The mechanism numbers are arbitrary but >= CKM_VENDOR_DEFINED.
+    /// object. The mechanism numbers are arbitrary but `>= CKM_VENDOR_DEFINED`.
     #[derive(Debug)]
     struct StubBackend;
 
@@ -501,7 +501,7 @@ mod tests {
         fn child_index_attribute(&self) -> AttributeType {
             AttributeType::VendorDefined(0x8000_0104)
         }
-        fn backend_name(&self) -> &str {
+        fn backend_name(&self) -> &'static str {
             "stub"
         }
     }

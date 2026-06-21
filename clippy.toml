@@ -1,0 +1,25 @@
+# Domain-specific terms that clippy::doc_markdown shouldn't flag. These are
+# either acronyms/standards or vendor names that don't need backticks in
+# prose documentation.
+doc-valid-idents = [
+    "..",
+    "SoftHSM",
+    "SoftHSMv2",
+    "PKCS",
+    "BIP-32",
+    "BIP-39",
+    "BIP-48",
+    "ECDSA",
+    "PBKDF2",
+    "SEC1",
+    "SLIP-77",
+    "P2WSH",
+    "MAST",
+    "NUMS",
+    "Asterism",
+    "Trezor",
+    "Utimaco",
+    "Thales",
+    "ProtectServer",
+    "OpenDNSSEC",
+]

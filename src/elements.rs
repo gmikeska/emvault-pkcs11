@@ -73,7 +73,7 @@ impl ElementsSigner for Pkcs11Signer {
             // as the Bitcoin path. Taproot lands in Phase 2.
             let sighash_type: elements::EcdsaSighashType = pset.inputs()[input_idx]
                 .sighash_type
-                .and_then(|t| t.ecdsa_hash_ty())
+                .and_then(elements::pset::PsbtSighashType::ecdsa_hash_ty)
                 .unwrap_or(elements::EcdsaSighashType::All);
 
             let witness_script = pset.inputs()[input_idx]
@@ -131,6 +131,10 @@ impl ElementsSigner for Pkcs11Signer {
             let der = sig.serialize_der();
             let mut sig_bytes = Vec::with_capacity(der.len() + 1);
             sig_bytes.extend_from_slice(&der);
+            // Sighash flag byte. SIGHASH constants are guaranteed by
+            // libelements / rust-bitcoin to fit in a `u8` (the wire format
+            // is a single byte appended to the DER encoding).
+            #[allow(clippy::cast_possible_truncation)]
             sig_bytes.push(sighash_type.as_u32() as u8);
 
             // `our_pk` is already a `bitcoin::PublicKey`: elements PSET

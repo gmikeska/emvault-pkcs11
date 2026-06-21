@@ -169,6 +169,12 @@ pub fn der_decode_octet_string_lenient(input: &[u8]) -> Result<Vec<u8>, String> 
 
 /// DER-encode a byte slice as an OCTET STRING. Used when a vendor expects
 /// `CKA_EC_POINT` in the PKCS#11 v2.40 wrapped form.
+///
+/// # Panics
+///
+/// Panics if `content.len() >= 0x10000` (more than two-byte DER length
+/// fields are not produced here); SEC1 EC points are always 33 or 65
+/// bytes, so this never fires for in-tree callers.
 pub fn der_encode_octet_string(content: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(content.len() + 4);
     out.push(0x04);

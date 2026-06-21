@@ -147,7 +147,7 @@ impl Pkcs11Signer {
         let loaded = LoadedKey {
             private_key: final_handle,
         };
-        Self::from_loaded(
+        Ok(Self::from_loaded(
             session,
             label,
             loaded,
@@ -156,7 +156,7 @@ impl Pkcs11Signer {
             derivation_path.clone(),
             network,
             backend,
-        )
+        ))
     }
 
     /// Load an existing federation key by label.
@@ -185,7 +185,7 @@ impl Pkcs11Signer {
         let fingerprint = backend
             .master_fingerprint(session.session(), loaded.private_key)
             .map_err(Pkcs11Error::from)?;
-        Self::from_loaded(
+        Ok(Self::from_loaded(
             session,
             label,
             loaded,
@@ -194,7 +194,7 @@ impl Pkcs11Signer {
             derivation_path,
             network,
             backend,
-        )
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -207,7 +207,7 @@ impl Pkcs11Signer {
         derivation_path: DerivationPath,
         network: bitcoin::Network,
         backend: Box<dyn HsmBackend>,
-    ) -> Result<Self, Pkcs11Error> {
+    ) -> Self {
         let descriptor_key = build_descriptor_key(&xpub, fingerprint, &derivation_path);
 
         let capabilities = SignerCapabilities {
@@ -228,7 +228,7 @@ impl Pkcs11Signer {
             loaded,
             backend,
         };
-        Ok(Self {
+        Self {
             label: label.to_string(),
             id,
             fingerprint,
@@ -238,7 +238,7 @@ impl Pkcs11Signer {
             capabilities,
             descriptor_key,
             inner: Arc::new(Mutex::new(inner)),
-        })
+        }
     }
 
     /// The descriptor key this signer contributes to a federation

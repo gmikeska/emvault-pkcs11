@@ -60,7 +60,7 @@ impl HsmBackend for UtimacoBackend {
         AttributeType::VendorDefined(CKA_BIP32_CHILD_INDEX)
     }
 
-    fn backend_name(&self) -> &str {
+    fn backend_name(&self) -> &'static str {
         "utimaco"
     }
 }

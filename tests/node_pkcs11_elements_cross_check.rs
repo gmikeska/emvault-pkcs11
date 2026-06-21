@@ -101,7 +101,8 @@ fn pkcs11_ct_descriptor_round_trips_through_local_address_derivation() {
     let mut signers: Vec<Pkcs11Signer> = Vec::with_capacity(labels.len());
 
     for (i, label) in labels.iter().enumerate() {
-        let session = dev_session((i + 1) as u8, &path);
+        let idx: u8 = u8::try_from(i + 1).expect("test labels fit in u8");
+        let session = dev_session(idx, &path);
         reset_label(&session, label);
         // The shim provides seed material for each session's slot from
         // its own configuration. See `libasterism_dev_hsm/README.md`.
