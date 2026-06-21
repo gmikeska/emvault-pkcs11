@@ -5,9 +5,9 @@
 //! HSM-backed key:
 //!
 //! - **`library_path`** — which PKCS#11 shared library to load. In
-//!   production this is the vendor's `.so` (e.g. `libcs_pkcs11_R3.so` for
-//!   Utimaco). In development and CI it's `libasterism_dev_hsm.so` — the
-//!   PKCS#11 shim that wraps SoftHSM 2 with software BIP-32 derivation.
+//!   production this is the vendor's `.so` shipped with their HSM SDK. In
+//!   development and CI it's `libasterism_dev_hsm.so` — the PKCS#11 shim
+//!   that wraps SoftHSM 2 with software BIP-32 derivation.
 //! - **`slot`** — which token to talk to (by label or numeric slot id).
 //! - **`pin`** — user PIN, held in [`secrecy::SecretString`] so it doesn't
 //!   accidentally end up in logs.

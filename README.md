@@ -11,10 +11,12 @@ signing to it transparently).
 
 It speaks PKCS#11 via [`cryptoki`] and works with any compliant token. The
 vendor-specific BIP-32 mechanism IDs and attribute IDs are abstracted by
-the [`HsmBackend`] trait — `UtimacoBackend` and `ThalesBackend` ship with
-the crate behind feature flags, and the matching `DevBackend` lives in
-the separate [`asterism-dev-signer`] crate so dev-only code never lands in
-production builds.
+the [`HsmBackend`] trait. Production-HSM `HsmBackend` implementations
+live in their own downstream crates (one per vendor SDK) so each
+deployment pulls in only the vendor it actually uses, while the matching
+development backend (`DevBackend`) lives in the separate
+[`asterism-dev-signer`] crate so dev-only code never lands in production
+builds.
 
 ## Architecture
 
@@ -28,11 +30,10 @@ production builds.
                              │
                    PKCS#11 ABI boundary
                              │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
- Vendor `.so` (Utimaco)   Dev shim `.so`    Vendor `.so` (Thales)
- hardware BIP-32          SoftHSM + sw       hardware BIP-32
-                          BIP-32
+            ┌────────────────┴────────────────┐
+            │                                 │
+     Vendor `.so` (prod)              Dev shim `.so`
+     hardware BIP-32                  SoftHSM + sw BIP-32
 ```
 
 Asterism's compiled code is identical in every case. The only thing that
@@ -80,10 +81,8 @@ src/
 ├── lib.rs              re-exports + crate-level doc
 ├── config.rs           Pkcs11Config, SlotIdentifier (Label / SlotId)
 ├── session.rs          Pkcs11Session (load library, resolve slot, login, R/W session)
-├── backend/            HsmBackend trait + vendor backends
-│   ├── mod.rs          HsmBackend, MasterKeyHandle, HsmBackendError, default impls
-│   ├── utimaco.rs      UtimacoBackend (feature-gated)
-│   └── thales.rs       ThalesBackend (feature-gated)
+├── backend/            HsmBackend trait (vendor backends live in their own crates)
+│   └── mod.rs          HsmBackend, MasterKeyHandle, HsmBackendError, default impls
 ├── ecdsa.rs            sign_with_low_s (BIP-146 canonicalization on top of CKM_ECDSA)
 ├── key_ops.rs          find_key_by_label, delete_key, label helpers, EC point DER helpers
 ├── policy.rs           MinimalHsmPolicy + SigRateCounter, persisted as CKO_DATA objects
@@ -111,46 +110,50 @@ serialization, but that detail is invisible to this crate.
 
 ## A 20-line example: connect, derive, build a federation
 
+The example below uses the development backend; for production, replace
+`DevBackend` with a vendor-supplied implementation from the appropriate
+downstream crate, point `library_path` at the vendor's `.so`, and pass a
+real 64-byte BIP-32 seed instead of the empty slice.
+
 ```rust,ignore
 use asterism_core::{Federation, NetworkType, Signer};
+use asterism_dev_signer::DevBackend;
 use asterism_pkcs11::{
-    Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, UtimacoBackend,
+    Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier,
 };
 use bitcoin::bip32::DerivationPath;
 use std::str::FromStr;
 
 let cfg = Pkcs11Config::new(
-    "/opt/utimaco/lib/libcs_pkcs11_R3.so",
-    SlotIdentifier::label("hsm-prod-1"),
+    "/path/to/libasterism_dev_hsm.so",
+    SlotIdentifier::label("dev-app-1"),
     "user-pin".to_string(),
-    DerivationPath::from_str("m/48'/0'/0'/2'")?,
-    Box::new(UtimacoBackend),
+    DerivationPath::from_str("m/48'/1'/0'/2'")?,
+    Box::new(DevBackend),
 );
 
-// 32-byte HSM-supplied seed from the production key-ceremony script.
-let seed: [u8; 64] = key_ceremony_seed();
-
 let session = Pkcs11Session::open(&cfg, &cfg.slot, "user-pin")?;
+// Empty seed: the dev shim looks up the slot's preconfigured BIP-39
+// mnemonic. Production backends should pass a 64-byte BIP-32 seed.
 let signer = Pkcs11Signer::derive_from_seed(
     session,
     "fed-1",
     &cfg.derivation_path,
-    bitcoin::Network::Bitcoin,
+    bitcoin::Network::Regtest,
     cfg.backend,
-    &seed,
+    &[],
 )?;
 
 let signers: Vec<Box<dyn Signer>> = vec![Box::new(signer) /* …, more HSMs … */];
 let federation: Federation =
-    Federation::new(1, signers, NetworkType::Bitcoin(bitcoin::Network::Bitcoin))?;
+    Federation::new(1, signers, NetworkType::Bitcoin(bitcoin::Network::Regtest))?;
 println!("descriptor: {}", federation.descriptor_string());
-# fn key_ceremony_seed() -> [u8; 64] { [0u8; 64] }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-For development against SoftHSM, use [`asterism-dev-signer`]'s
-`DevBackend` plus `setup_dev_federation()` instead of writing the
-plumbing by hand.
+For convenience scripts that wire SoftHSM tokens, slot allocation, and a
+default federation in one shot, use [`asterism-dev-signer`]'s
+`setup_dev_federation()` helper.
 
 ## Signing flow (BDK integration)
 
@@ -180,10 +183,6 @@ signatures are collected, the consumer calls `Wallet::finalize_psbt()`
 ## Cargo features
 
 - `default = []` — minimal v1 build (vendor-agnostic core only).
-- `utimaco` — compiles in [`backend::UtimacoBackend`] for Utimaco
-  Blockchain Protect HSMs.
-- `thales` — compiles in [`backend::ThalesBackend`] for Thales
-  ProtectServer (PTK-C) HSMs.
 - `elements` — adds Elements/Liquid signing on top of `Pkcs11Signer`.
 - `integration` — enables the `tests/integration.rs` suite (requires a
   running PKCS#11 token; see `../asterism-dev-signer` for the dev path).

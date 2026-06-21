@@ -12,10 +12,6 @@ integration = []
 # Enable RPC tests against an external bitcoind via .env (BITCOIN_RPC_*).
 # Combine with `integration` for HSM-backed federation cross-checks.
 node-tests = []
-# Vendor backend: Utimaco Blockchain Protect mechanism/attribute IDs.
-utimaco = []
-# Vendor backend: Thales ProtectServer (PTK-C) mechanism/attribute IDs.
-thales = []
 # Enable Elements/Liquid signing on Pkcs11Signer. Activates the matching
 # `elements` feature on `asterism-core` and pulls in `asterism-elements`
 # so the HSM can produce ECDSA partial signatures over PSET inputs.

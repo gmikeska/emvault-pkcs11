@@ -7,8 +7,9 @@
 //!
 //! Each implementation talks to a real PKCS#11 library:
 //!
-//! - In production, the library is the vendor's HSM driver (Utimaco's
-//!   `libcs_pkcs11_R3.so`, Thales's `libctsw.so`, etc.).
+//! - In production, the library is the vendor's HSM driver. Vendor-specific
+//!   `HsmBackend` implementations live in their own downstream crates so
+//!   each deployment pulls in only the vendor SDK it actually uses.
 //! - In development and CI, the library is `libasterism_dev_hsm.so` — a shim
 //!   that wraps SoftHSM 2 and implements BIP-32 derivation in software. The
 //!   matching backend, `DevBackend`, lives in the separate
@@ -54,16 +55,6 @@ use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHan
 use cryptoki::session::Session;
 
 use crate::key_ops::SECP256K1_OID_DER;
-
-#[cfg(feature = "thales")]
-pub mod thales;
-#[cfg(feature = "utimaco")]
-pub mod utimaco;
-
-#[cfg(feature = "thales")]
-pub use thales::ThalesBackend;
-#[cfg(feature = "utimaco")]
-pub use utimaco::UtimacoBackend;
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -141,8 +132,8 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
     /// Vendor-defined attribute type carrying the child index.
     fn child_index_attribute(&self) -> AttributeType;
 
-    /// Backend identity for logging and diagnostics (e.g. `"utimaco"`,
-    /// `"thales"`, `"dev"`).
+    /// Backend identity for logging and diagnostics (e.g. `"dev"`, or a
+    /// vendor identifier supplied by a downstream crate).
     fn backend_name(&self) -> &'static str;
 
     // ------------------------------------------------------------------
@@ -159,30 +150,41 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
     /// per BIP-39).
     ///
     /// The seed is passed both as the mechanism's `pParameter` (for vendors
-    /// like Thales / our dev shim that consume it there) and as the
+    /// that consume it there, including the dev shim) and as the
     /// `CKA_VALUE` of a session-only `CKO_SECRET_KEY` base key (for
-    /// vendors like Utimaco that consume it through the base-key handle).
-    /// The temporary base key is destroyed after derivation.
+    /// vendors that consume it through the base-key handle). The temporary
+    /// base key is destroyed after derivation.
+    ///
+    /// As a special case, an empty `seed` (`&[]`) is accepted: the
+    /// mechanism param and base-key value are both filled with 64 zero
+    /// bytes, signalling "no real seed material here." Backends that
+    /// can resolve the seed themselves (e.g. the dev shim's slot-keyed
+    /// preloaded BIP-39 mnemonics) detect the all-zero seed and fall
+    /// through to their internal lookup. Production backends with no
+    /// such fallback will reject the derivation.
     ///
     /// # Errors
     ///
-    /// Returns [`HsmBackendError::Derivation`] if `seed.len() != 64`,
-    /// [`HsmBackendError::Pkcs11`] if the underlying token rejects the
-    /// request.
+    /// Returns [`HsmBackendError::Derivation`] if `seed.len()` is not
+    /// `0` or `64`, [`HsmBackendError::Pkcs11`] if the underlying token
+    /// rejects the request.
     fn derive_master_key(
         &self,
         session: &Session,
         seed: &[u8],
         label: &str,
     ) -> Result<MasterKeyHandle, HsmBackendError> {
-        if seed.len() != 64 {
+        if !seed.is_empty() && seed.len() != 64 {
             return Err(HsmBackendError::Derivation(format!(
-                "BIP-32 master seed must be 64 bytes, got {}",
+                "BIP-32 master seed must be 64 bytes (or empty for backend-resolved \
+                 seeds), got {}",
                 seed.len()
             )));
         }
         let mut seed_buf = [0u8; 64];
-        seed_buf.copy_from_slice(seed);
+        if seed.len() == 64 {
+            seed_buf.copy_from_slice(seed);
+        }
 
         let mech_type = self.master_derive_mechanism();
         let vendor_mech = VendorDefinedMechanism::new(mech_type, Some(&seed_buf));
@@ -194,8 +196,10 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
         // the cryptoki-friendly way to pass a "base key" handle to
         // `C_DeriveKey` — vendors that consume the seed via the mechanism
         // parameter can ignore it; vendors that consume it via the base
-        // key (Utimaco-style) read CKA_VALUE.
-        let seed_template = seed_secret_template(seed);
+        // key read CKA_VALUE. For empty `seed`, the value is 64 zero
+        // bytes (the dev shim treats that as "use the slot's preloaded
+        // mnemonic").
+        let seed_template = seed_secret_template(&seed_buf);
         let base_key = session.create_object(&seed_template)?;
 
         let result = session.derive_key(&mech, base_key, &template);

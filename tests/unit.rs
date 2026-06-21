@@ -56,22 +56,3 @@ fn slot_identifier_display() {
     assert_eq!(SlotIdentifier::label("foo").to_string(), "label=foo");
     assert_eq!(SlotIdentifier::slot_id(7).to_string(), "slot_id=7");
 }
-
-#[cfg(feature = "utimaco")]
-#[test]
-fn utimaco_backend_advertises_correct_name() {
-    use asterism_pkcs11::HsmBackend;
-    use asterism_pkcs11::UtimacoBackend;
-    assert_eq!(UtimacoBackend.backend_name(), "utimaco");
-    // Mechanism numbers must be in the vendor-defined range.
-    let mech = UtimacoBackend.master_derive_mechanism();
-    let _ = mech; // smoke test — just that the constructor accepts the value
-}
-
-#[cfg(feature = "thales")]
-#[test]
-fn thales_backend_advertises_correct_name() {
-    use asterism_pkcs11::HsmBackend;
-    use asterism_pkcs11::ThalesBackend;
-    assert_eq!(ThalesBackend.backend_name(), "thales");
-}

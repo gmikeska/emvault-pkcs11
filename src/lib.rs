@@ -16,11 +16,10 @@
 //!                              │
 //!                    PKCS#11 ABI boundary
 //!                              │
-//!         ┌────────────────────┼────────────────────┐
-//!         │                    │                    │
-//!  Vendor `.so` (Utimaco)   Dev shim `.so`    Vendor `.so` (Thales)
-//!  hardware BIP-32          SoftHSM + sw       hardware BIP-32
-//!                            BIP-32
+//!             ┌────────────────┴────────────────┐
+//!             │                                 │
+//!      Vendor `.so` (prod)              Dev shim `.so`
+//!      hardware BIP-32                  SoftHSM + sw BIP-32
 //! ```
 //!
 //! Asterism's compiled code is identical in every case. The only thing
@@ -29,48 +28,48 @@
 //! behind the PKCS#11 ABI boundary, not in this crate — there are no
 //! `#[cfg(dev)]` paths here.
 //!
-//! ## Quick example
+//! Production-HSM `HsmBackend` implementations live in their own
+//! downstream crates (one per vendor SDK); see those crates for usage
+//! examples. The development backend ships in
+//! [`asterism-dev-signer`](https://docs.rs/asterism-dev-signer) and is the
+//! basis for the example below.
+//!
+//! ## Quick example (development backend)
 //!
 //! ```ignore
+//! use asterism_dev_signer::DevBackend;
 //! use asterism_pkcs11::{
-//!     Pkcs11Session, Pkcs11Signer, Pkcs11Config, SlotIdentifier,
-//!     UtimacoBackend,
+//!     Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier,
 //! };
 //! use bitcoin::bip32::DerivationPath;
 //! use std::str::FromStr;
 //!
 //! let cfg = Pkcs11Config::new(
-//!     "/opt/utimaco/lib/libcs_pkcs11_R3.so",
-//!     SlotIdentifier::label("hsm-prod-1"),
+//!     "/path/to/libasterism_dev_hsm.so",
+//!     SlotIdentifier::label("dev-app-1"),
 //!     "user-pin".to_string(),
-//!     DerivationPath::from_str("m/48'/0'/0'/2'")?,
-//!     Box::new(UtimacoBackend),
+//!     DerivationPath::from_str("m/48'/1'/0'/2'")?,
+//!     Box::new(DevBackend),
 //! );
 //!
-//! // 32-byte seed comes from the production key-ceremony script — it's
-//! // material that is fed to the HSM exactly once and is not retained.
-//! let seed: [u8; 32] = key_ceremony_seed();
-//!
 //! let session = Pkcs11Session::open(&cfg, &cfg.slot, /* pin */ "user-pin")?;
+//! // Empty seed: the dev shim looks up the slot's preconfigured BIP-39
+//! // mnemonic and derives the seed itself. Production backends should
+//! // pass the 64-byte BIP-32 seed material directly.
 //! let signer = Pkcs11Signer::derive_from_seed(
 //!     session,
 //!     "fed-1",
 //!     &cfg.derivation_path,
-//!     bitcoin::Network::Bitcoin,
+//!     bitcoin::Network::Regtest,
 //!     cfg.backend,
-//!     &seed,
+//!     &[],
 //! )?;
 //! println!("descriptor key: {}", signer.descriptor_key());
-//! # fn key_ceremony_seed() -> [u8; 32] { [0u8; 32] }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! ## Cargo features
 //!
-//! - `utimaco` — compiles in [`backend::UtimacoBackend`] for Utimaco
-//!   Blockchain Protect HSMs.
-//! - `thales` — compiles in [`backend::ThalesBackend`] for Thales
-//!   ProtectServer (PTK-C) HSMs.
 //! - `elements` — adds Elements/Liquid signing on top of `Pkcs11Signer`
 //!   (HSM ECDSA path is identical; CT-specific operations stay
 //!   software-side via LWK).
@@ -104,10 +103,6 @@ pub use bitcoin;
 pub use cryptoki;
 pub use miniscript;
 
-#[cfg(feature = "thales")]
-pub use backend::ThalesBackend;
-#[cfg(feature = "utimaco")]
-pub use backend::UtimacoBackend;
 pub use backend::{HsmBackend, HsmBackendError, MasterKeyHandle};
 pub use config::{Pkcs11Config, SlotIdentifier};
 pub use error::Pkcs11Error;
