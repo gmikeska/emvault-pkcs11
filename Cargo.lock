@@ -87,6 +87,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "asterism-dev-signer"
+version = "0.1.0"
+dependencies = [
+ "asterism-core",
+ "asterism-pkcs11",
+ "bip39",
+ "bitcoin",
+ "cryptoki",
+ "dotenvy",
+ "hex",
+ "log",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "asterism-elements"
 version = "0.1.0"
 dependencies = [
@@ -108,6 +126,7 @@ name = "asterism-pkcs11"
 version = "0.1.0"
 dependencies = [
  "asterism-core",
+ "asterism-dev-signer",
  "asterism-elements",
  "bdk_wallet",
  "bitcoin",

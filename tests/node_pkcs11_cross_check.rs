@@ -21,10 +21,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use asterism_core::{Federation, Signer, network::NetworkType};
+use asterism_dev_signer::{DevBackend, mnemonic_to_seed_no_passphrase};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
 use miniscript::{Descriptor, DescriptorPublicKey};
+use secrecy::ExposeSecret;
 use serial_test::serial;
 
 mod common;
@@ -44,14 +46,25 @@ fn load_env() {
     let _ = dotenvy::from_path(&env_path);
 }
 
-fn dev_session(idx: u8) -> Pkcs11Session {
+fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String) {
     load_env();
-    let cfg = Pkcs11Config::from_env().expect("SOFTHSM2_LIB env var");
+    let lib = Pkcs11Config::library_path_from_env().expect("PKCS11_LIB env var");
     let label = std::env::var(format!("HSM_DEV_{idx}_LABEL"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_LABEL env var"));
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
-    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open dev session")
+    let mnemonic = std::env::var(format!("WALLET_TEST_{idx}_MNEMONIC"))
+        .unwrap_or_else(|_| panic!("WALLET_TEST_{idx}_MNEMONIC env var"));
+    let cfg = Pkcs11Config::new(
+        lib,
+        SlotIdentifier::label(&label),
+        pin.clone(),
+        path.clone(),
+        Box::new(DevBackend),
+    );
+    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
+        .expect("open dev session");
+    (session, mnemonic)
 }
 
 /// Wipe key + policy/sigrate DATA objects associated with `label` from a
@@ -135,13 +148,22 @@ fn pkcs11_3of5_descriptor_matches_bitcoin_core() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
     let label = "node-cross-3of5";
 
-    // Generate one fresh key per dev token and assemble into a 3-of-5 fed.
+    // Derive one federation key per dev token from its `WALLET_TEST_{i}`
+    // mnemonic and assemble into a 3-of-5 fed.
     let mut signers: Vec<Box<dyn Signer>> = Vec::with_capacity(5);
     for idx in 1..=5u8 {
-        let s = dev_session(idx);
+        let (s, mnemonic) = dev_session(idx, &path);
         reset_label(&s, label);
-        let signer =
-            Pkcs11Signer::generate(s, label, &path, Network::Testnet).expect("generate dev key");
+        let seed = mnemonic_to_seed_no_passphrase(&mnemonic).expect("mnemonic_to_seed");
+        let signer = Pkcs11Signer::derive_from_seed(
+            s,
+            label,
+            &path,
+            Network::Testnet,
+            Box::new(DevBackend),
+            seed.expose_secret().as_slice(),
+        )
+        .expect("derive dev key");
         signers.push(Box::new(signer));
     }
 

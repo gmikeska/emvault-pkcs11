@@ -1,10 +1,10 @@
 //! [`asterism_elements::ElementsSigner`] implementation for [`Pkcs11Signer`].
 //!
-//! The HSM produces ECDSA partial signatures over PSET inputs identically to
-//! the Bitcoin path: it doesn't see (or care about) confidential-transaction
-//! data — blinding, range proofs, surjection proofs, ephemeral keys all
-//! stay software-side via `lwk_wollet`. The HSM only computes ECDSA on a
-//! sighash.
+//! The HSM produces ECDSA partial signatures over PSET inputs identically
+//! to the Bitcoin path: it doesn't see (or care about) confidential
+//! transaction data — blinding, range proofs, surjection proofs, and
+//! ephemeral keys all stay software-side via `lwk_wollet`. The HSM only
+//! computes ECDSA on a sighash.
 //!
 //! This module mirrors [`crate::signer::Pkcs11Signer`]'s
 //! [`bdk_wallet::signer::TransactionSigner`] impl, swapping
@@ -22,15 +22,14 @@ use elements::hashes::Hash;
 use elements::pset::PartiallySignedTransaction as Pset;
 use elements::sighash::SighashCache;
 
-use crate::derivation::SignerContext;
 use crate::policy;
 use crate::signer::Pkcs11Signer;
 
 impl ElementsSigner for Pkcs11Signer {
     // The mutex guard wraps a `cryptoki::Session` which is `!Sync`, so it
     // genuinely needs to be held across the whole signing flow (sighash
-    // computation, per-input signing via the strategy, and the post-loop
-    // sig-rate update all reference `inner.session`).
+    // computation, per-input signing, and the post-loop sig-rate update
+    // all reference `inner.session`).
     #[allow(clippy::significant_drop_tightening)]
     fn sign_pset(&self, pset: &mut Pset) -> Result<usize, PsetError> {
         let inner = self
@@ -40,21 +39,6 @@ impl ElementsSigner for Pkcs11Signer {
         let policy = policy::load_policy(&inner.session, self.label_str())
             .map_err(|e| PsetError::SignerBackend(e.to_string()))?;
 
-        let chain_code = inner
-            .loaded
-            .material
-            .chain_code()
-            .map_err(|e| PsetError::SignerBackend(e.to_string()))?;
-
-        let signer_ctx = SignerContext {
-            session: &inner.session,
-            fingerprint: self.fingerprint(),
-            derivation_path: self.derivation_path_owned(),
-            chain_code,
-            public_key: inner.loaded.public_key,
-            private_key_handle: inner.loaded.private_key,
-        };
-
         // Sighash computation is over the unsigned-transaction view of the
         // PSET, identical to the bitcoin path. Failure here is a sanity
         // error in the PSET, not an HSM error.
@@ -62,6 +46,8 @@ impl ElementsSigner for Pkcs11Signer {
             .extract_tx()
             .map_err(|e| PsetError::Elements(e.to_string()))?;
 
+        let federation_path_len = self.derivation_path_owned().len();
+        let federation_handle = inner.loaded.private_key;
         let mut signed = 0usize;
         for input_idx in 0..pset.inputs().len() {
             let our_origin = pset.inputs()[input_idx]
@@ -73,6 +59,17 @@ impl ElementsSigner for Pkcs11Signer {
             let Some((our_pk, input_path)) = our_origin else {
                 continue;
             };
+
+            let segments: Vec<bitcoin::bip32::ChildNumber> =
+                input_path.as_ref().iter().copied().collect();
+            if segments.len() < federation_path_len {
+                return Err(PsetError::Elements(format!(
+                    "input {input_idx} BIP-32 path is shorter than federation path"
+                )));
+            }
+            let relative_segments = &segments[federation_path_len..];
+            let relative_path: bitcoin::bip32::DerivationPath =
+                relative_segments.to_vec().into();
 
             // v1 supports P2WSH (Segwitv0) sighashes only — the same scope
             // as the Bitcoin path. Taproot lands in Phase 2.
@@ -108,10 +105,26 @@ impl ElementsSigner for Pkcs11Signer {
             );
             let sighash_msg: [u8; 32] = sighash.to_byte_array();
 
-            let mut sig = inner
-                .derivation
-                .sign_input(&signer_ctx, &input_path, &sighash_msg)
-                .map_err(|e| PsetError::SignerBackend(e.to_string()))?;
+            let signing_handle = if relative_segments.is_empty() {
+                federation_handle
+            } else {
+                inner
+                    .backend
+                    .derive_path(inner.session.session(), federation_handle, &relative_path)
+                    .map_err(|e| PsetError::SignerBackend(e.to_string()))?
+            };
+
+            let sign_result = crate::ecdsa::sign_with_low_s(
+                inner.session.session(),
+                signing_handle,
+                &sighash_msg,
+            );
+
+            if signing_handle != federation_handle {
+                let _ = inner.session.session().destroy_object(signing_handle);
+            }
+
+            let mut sig = sign_result.map_err(|e| PsetError::SignerBackend(e.to_string()))?;
             sig.normalize_s();
 
             // Encode as DER + sighash flag byte (the same wire format

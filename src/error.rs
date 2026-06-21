@@ -2,6 +2,8 @@
 
 use asterism_core::SignerError;
 
+use crate::backend::HsmBackendError;
+
 /// All errors raised by `asterism-pkcs11`.
 #[derive(Debug, thiserror::Error)]
 pub enum Pkcs11Error {
@@ -33,15 +35,9 @@ pub enum Pkcs11Error {
     /// Required PKCS#11 mechanism is not supported by this library/device.
     #[error("PKCS#11 mechanism {0} not supported by this token")]
     MechanismUnsupported(&'static str),
-    /// BIP-32 child derivation is not supported in the active strategy or by
-    /// the underlying HSM.
-    #[error("BIP-32 derivation unsupported by {strategy}: {reason}")]
-    DerivationUnsupported {
-        /// Name of the active derivation strategy.
-        strategy: &'static str,
-        /// Why it failed.
-        reason: String,
-    },
+    /// HSM backend error (vendor-specific BIP-32 derivation failure).
+    #[error("HSM backend error: {0}")]
+    HsmBackend(#[from] HsmBackendError),
     /// Failed to find a required HSM-resident object (key, chain code,
     /// metadata, etc.).
     #[error("PKCS#11 object not found: {0}")]
@@ -89,10 +85,13 @@ impl From<Pkcs11Error> for SignerError {
                 id: asterism_core::SignerId::new("pkcs11"),
                 rule,
             },
-            Pkcs11Error::DerivationUnsupported { strategy, reason } => Self::SigningFailed {
+            Pkcs11Error::HsmBackend(HsmBackendError::Derivation(reason)) => Self::SigningFailed {
                 id: asterism_core::SignerId::new("pkcs11"),
-                reason: format!("{strategy}: {reason}"),
+                reason: format!("backend derivation: {reason}"),
             },
+            Pkcs11Error::HsmBackend(HsmBackendError::KeyNotFound { label }) => {
+                Self::Backend(format!("key not found: {label}"))
+            }
             other => Self::Backend(other.to_string()),
         }
     }

@@ -1,55 +1,106 @@
-//! Configuration types: which PKCS#11 module to load, which slot to use,
-//! and how to resolve a slot.
+//! Configuration types for opening a PKCS#11 session and selecting a
+//! BIP-32-aware HSM backend.
+//!
+//! [`Pkcs11Config`] carries everything `Pkcs11Signer` needs to wire up an
+//! HSM-backed key:
+//!
+//! - **`library_path`** — which PKCS#11 shared library to load. In
+//!   production this is the vendor's `.so` (e.g. `libcs_pkcs11_R3.so` for
+//!   Utimaco). In development and CI it's `libasterism_dev_hsm.so` — the
+//!   PKCS#11 shim that wraps SoftHSM 2 with software BIP-32 derivation.
+//! - **`slot`** — which token to talk to (by label or numeric slot id).
+//! - **`pin`** — user PIN, held in [`secrecy::SecretString`] so it doesn't
+//!   accidentally end up in logs.
+//! - **`derivation_path`** — the federation BIP-32 path the signer
+//!   participates at (e.g. `m/48'/1'/0'/2'`).
+//! - **`backend`** — a [`Box<dyn HsmBackend>`](crate::backend::HsmBackend)
+//!   carrying the vendor-specific mechanism IDs and attribute IDs for
+//!   BIP-32 derivation. The standard cryptoki path stays vendor-agnostic;
+//!   only the derivation calls are routed through the backend.
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use bitcoin::bip32::DerivationPath;
+use secrecy::SecretString;
 
+use crate::backend::HsmBackend;
 use crate::error::Pkcs11Error;
 
 /// Configuration for opening a PKCS#11 session.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+///
+/// Constructed via [`Self::builder`] or directly. The struct is `!Clone`
+/// because [`Box<dyn HsmBackend>`] can't be cloned through the trait
+/// object — instantiate a fresh config (cheap) instead of cloning.
 pub struct Pkcs11Config {
-    /// Filesystem path to the PKCS#11 shared library
-    /// (e.g. `/usr/lib/softhsm/libsofthsm2.so`).
+    /// Filesystem path to the PKCS#11 shared library.
     pub library_path: PathBuf,
+    /// Token selector (label or slot id).
+    pub slot: SlotIdentifier,
+    /// User PIN.
+    pub pin: SecretString,
+    /// BIP-32 derivation path for this signer's federation key.
+    pub derivation_path: DerivationPath,
+    /// Vendor backend carrying mechanism/attribute IDs for BIP-32
+    /// derivation through this PKCS#11 library.
+    pub backend: Box<dyn HsmBackend>,
+}
+
+impl std::fmt::Debug for Pkcs11Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pkcs11Config")
+            .field("library_path", &self.library_path)
+            .field("slot", &self.slot)
+            .field("derivation_path", &self.derivation_path)
+            .field("backend", &self.backend.backend_name())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Pkcs11Config {
-    /// Construct a config with an explicit library path.
-    pub fn new(library_path: impl Into<PathBuf>) -> Self {
+    /// Construct a config with all fields supplied directly.
+    pub fn new(
+        library_path: impl Into<PathBuf>,
+        slot: SlotIdentifier,
+        pin: impl Into<SecretString>,
+        derivation_path: DerivationPath,
+        backend: Box<dyn HsmBackend>,
+    ) -> Self {
         Self {
             library_path: library_path.into(),
+            slot,
+            pin: pin.into(),
+            derivation_path,
+            backend,
         }
     }
 
-    /// Build a `Pkcs11Config` from the `SOFTHSM2_LIB` environment variable
-    /// (the standard variable used in the project's `.env`). Falls back to
-    /// `PKCS11_LIB` for non-SoftHSM deployments.
+    /// Read the PKCS#11 library path from the environment.
+    ///
+    /// Looks at `PKCS11_LIB` first (the conventional dev/prod knob), then
+    /// falls back to `SOFTHSM2_LIB` for legacy SoftHSM-direct setups.
     ///
     /// # Errors
     ///
-    /// Returns [`Pkcs11Error::Env`] if neither `SOFTHSM2_LIB` nor `PKCS11_LIB`
-    /// is present in the process environment.
-    pub fn from_env() -> Result<Self, Pkcs11Error> {
-        let path = std::env::var("SOFTHSM2_LIB")
+    /// Returns [`Pkcs11Error::Env`] if neither variable is set.
+    pub fn library_path_from_env() -> Result<PathBuf, Pkcs11Error> {
+        let path = std::env::var("PKCS11_LIB")
             .ok()
-            .or_else(|| std::env::var("PKCS11_LIB").ok())
+            .or_else(|| std::env::var("SOFTHSM2_LIB").ok())
             .ok_or(Pkcs11Error::Env {
-                var: "SOFTHSM2_LIB",
-                reason: "neither SOFTHSM2_LIB nor PKCS11_LIB is set".into(),
+                var: "PKCS11_LIB",
+                reason: "neither PKCS11_LIB nor SOFTHSM2_LIB is set".into(),
             })?;
-        Ok(Self::new(path))
+        Ok(PathBuf::from(path))
     }
 }
 
 /// How a caller identifies a slot on the PKCS#11 module.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum SlotIdentifier {
     /// Match by token label (recommended — stable across slot reordering).
     Label(String),
-    /// Match by raw slot ID.
+    /// Match by raw slot id.
     SlotId(u64),
 }
 
@@ -97,36 +148,28 @@ mod tests {
     }
 
     #[test]
-    fn config_from_env_reads_softhsm_var() {
-        // Don't pollute global env in tests.
-        // SAFETY: tests for env-reading run serially via a separate path.
+    fn library_path_from_env_reads_pkcs11_lib() {
         let prev_softhsm = std::env::var("SOFTHSM2_LIB").ok();
         let prev_pkcs11 = std::env::var("PKCS11_LIB").ok();
+        // SAFETY: we restore the prior environment at end of test.
         unsafe {
             std::env::remove_var("SOFTHSM2_LIB");
             std::env::remove_var("PKCS11_LIB");
         }
-        // Empty environment → error.
-        assert!(Pkcs11Config::from_env().is_err());
-        unsafe {
-            std::env::set_var("PKCS11_LIB", "/tmp/fake.so");
-        }
-        let cfg = Pkcs11Config::from_env().unwrap();
-        assert_eq!(cfg.library_path, std::path::PathBuf::from("/tmp/fake.so"));
-        unsafe {
-            std::env::remove_var("PKCS11_LIB");
-        }
+        assert!(Pkcs11Config::library_path_from_env().is_err());
         unsafe {
             std::env::set_var("SOFTHSM2_LIB", "/tmp/softhsm.so");
         }
-        let cfg = Pkcs11Config::from_env().unwrap();
-        assert_eq!(
-            cfg.library_path,
-            std::path::PathBuf::from("/tmp/softhsm.so")
-        );
-        // Restore prior env.
+        let path = Pkcs11Config::library_path_from_env().unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/softhsm.so"));
+        unsafe {
+            std::env::set_var("PKCS11_LIB", "/tmp/pkcs11.so");
+        }
+        let path = Pkcs11Config::library_path_from_env().unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/pkcs11.so"));
         unsafe {
             std::env::remove_var("SOFTHSM2_LIB");
+            std::env::remove_var("PKCS11_LIB");
         }
         if let Some(v) = prev_softhsm {
             unsafe {

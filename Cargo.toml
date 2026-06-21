@@ -7,14 +7,15 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = []
-# Enable integration tests against a SoftHSMv2 token described by .env.
+# Enable integration tests against a live PKCS#11 token described by .env.
 integration = []
-# Enable software-side BIP32 derivation for development. Master keys must be
-# CKA_EXTRACTABLE=true. NEVER enable in production.
-dev-derivation = []
 # Enable RPC tests against an external bitcoind via .env (BITCOIN_RPC_*).
 # Combine with `integration` for HSM-backed federation cross-checks.
 node-tests = []
+# Vendor backend: Utimaco Blockchain Protect mechanism/attribute IDs.
+utimaco = []
+# Vendor backend: Thales ProtectServer (PTK-C) mechanism/attribute IDs.
+thales = []
 # Enable Elements/Liquid signing on Pkcs11Signer. Activates the matching
 # `elements` feature on `asterism-core` and pulls in `asterism-elements`
 # so the HSM can produce ECDSA partial signatures over PSET inputs.
@@ -39,6 +40,7 @@ thiserror = "2.0.18"
 
 [dev-dependencies]
 asterism-core = { path = "../asterism-core", features = ["test-utils"] }
+asterism-dev-signer = { path = "../asterism-dev-signer" }
 dotenvy = "0.15.7"
 serial_test = "3.5.0"
 tempfile = "3.27.0"

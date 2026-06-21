@@ -1,11 +1,12 @@
 //! Stand-alone unit tests that don't require an HSM session.
 //!
-//! Integration tests against `SoftHSMv2` live in `integration.rs` and are
-//! gated behind the `integration` feature.
+//! Integration tests against a live PKCS#11 token live in `integration.rs`
+//! and are gated behind the `integration` feature.
 
 use asterism_core::SignerError;
 use asterism_pkcs11::{
-    config::{Pkcs11Config, SlotIdentifier},
+    HsmBackendError,
+    config::SlotIdentifier,
     error::Pkcs11Error,
 };
 
@@ -22,16 +23,26 @@ fn pkcs11_error_policy_violation_maps_to_signer_policy_violation() {
 }
 
 #[test]
-fn pkcs11_error_derivation_unsupported_maps_to_signing_failed() {
-    let e = Pkcs11Error::DerivationUnsupported {
-        strategy: "HsmNativeBip32",
-        reason: "no mechanism".into(),
-    };
+fn hsm_backend_error_derivation_maps_to_signing_failed() {
+    let e = Pkcs11Error::HsmBackend(HsmBackendError::Derivation("seed length wrong".into()));
     let s: SignerError = e.into();
     match s {
         SignerError::SigningFailed { reason, .. } => {
-            assert!(reason.contains("HsmNativeBip32"));
-            assert!(reason.contains("no mechanism"));
+            assert!(reason.contains("seed length wrong"), "got: {reason}");
+        }
+        other => panic!("unexpected variant: {other:?}"),
+    }
+}
+
+#[test]
+fn hsm_backend_error_key_not_found_maps_to_backend() {
+    let e = Pkcs11Error::HsmBackend(HsmBackendError::KeyNotFound {
+        label: "fed-1".into(),
+    });
+    let s: SignerError = e.into();
+    match s {
+        SignerError::Backend(msg) => {
+            assert!(msg.contains("fed-1"), "got: {msg}");
         }
         other => panic!("unexpected variant: {other:?}"),
     }
@@ -50,11 +61,21 @@ fn slot_identifier_display() {
     assert_eq!(SlotIdentifier::slot_id(7).to_string(), "slot_id=7");
 }
 
+#[cfg(feature = "utimaco")]
 #[test]
-fn pkcs11_config_new_is_path_buf_compatible() {
-    let cfg = Pkcs11Config::new("/usr/lib/softhsm/libsofthsm2.so");
-    assert_eq!(
-        cfg.library_path,
-        std::path::PathBuf::from("/usr/lib/softhsm/libsofthsm2.so")
-    );
+fn utimaco_backend_advertises_correct_name() {
+    use asterism_pkcs11::HsmBackend;
+    use asterism_pkcs11::UtimacoBackend;
+    assert_eq!(UtimacoBackend.backend_name(), "utimaco");
+    // Mechanism numbers must be in the vendor-defined range.
+    let mech = UtimacoBackend.master_derive_mechanism();
+    let _ = mech; // smoke test — just that the constructor accepts the value
+}
+
+#[cfg(feature = "thales")]
+#[test]
+fn thales_backend_advertises_correct_name() {
+    use asterism_pkcs11::HsmBackend;
+    use asterism_pkcs11::ThalesBackend;
+    assert_eq!(ThalesBackend.backend_name(), "thales");
 }

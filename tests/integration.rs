@@ -1,31 +1,51 @@
-//! Integration tests against a live `SoftHSMv2` token.
+//! Integration tests against the `libasterism_dev_hsm.so` shim
+//! (SoftHSM 2 + software BIP-32 derivation).
 //!
 //! Gated behind the `integration` feature. Reads HSM credentials from
-//! `../asterism-core/.env` via [`dotenvy`]. Tests are serialized via
-//! [`serial_test`] because PKCS#11 sessions are token-locked and the dev
-//! tokens are shared.
+//! `../asterism-core/.env` via [`dotenvy`], using the same env-var
+//! contract that `asterism-dev-signer` understands:
+//!
+//! - `PKCS11_LIB` — path to `libasterism_dev_hsm.so`
+//! - `SOFTHSM2_LIB` — path to `libsofthsm2.so` (used by the shim)
+//! - `HSM_TEST_LABEL`, `HSM_TEST_PIN` — disposable token used for
+//!   per-test scratch state. Wiped between tests.
+//! - `HSM_DEV_{1..5}_LABEL`, `HSM_DEV_{1..5}_PIN`,
+//!   `WALLET_TEST_{1..5}_MNEMONIC` — the persistent dev federation set.
+//!
+//! Tests are serialized via [`serial_test`] because PKCS#11 sessions
+//! are token-locked.
 //!
 //! Run with:
-//! ```bash
-//! cargo test -p asterism-pkcs11 --features integration -- --nocapture
-//! ```
 //!
-//! The `asterism-test` token (slot label `asterism-test`) is reset between
-//! tests; the dev tokens (`asterism-hsm-1` … `asterism-hsm-5`) persist.
+//! ```bash
+//! # one-time:
+//! cd ../libasterism_dev_hsm && cargo build --release
+//! cd ../asterism-pkcs11
+//! cargo test --features integration -- --nocapture
+//! ```
 #![cfg(feature = "integration")]
 
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use asterism_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
+use asterism_dev_signer::{DevBackend, mnemonic_to_seed_no_passphrase};
 use asterism_pkcs11::{
     MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops, policy,
 };
 use bitcoin::bip32::DerivationPath;
+use secrecy::ExposeSecret;
 use serial_test::serial;
 
 const TEST_LABEL_ENV: &str = "HSM_TEST_LABEL";
 const TEST_PIN_ENV: &str = "HSM_TEST_PIN";
+
+/// A throwaway BIP-39 mnemonic used by per-test signers. This is a
+/// well-known BIP-39 test vector (`abandon × 11 + about`) — never put
+/// real funds at this seed.
+const TEST_MNEMONIC: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon \
+     about";
 
 fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -35,22 +55,42 @@ fn load_env() {
     let _ = dotenvy::from_path(&env_path);
 }
 
-fn test_session() -> Pkcs11Session {
-    load_env();
-    let cfg = Pkcs11Config::from_env().expect("SOFTHSM2_LIB env var");
-    let label = std::env::var(TEST_LABEL_ENV).expect("HSM_TEST_LABEL env var");
-    let pin = std::env::var(TEST_PIN_ENV).expect("HSM_TEST_PIN env var");
-    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open test session")
+fn pkcs11_lib_path() -> PathBuf {
+    Pkcs11Config::library_path_from_env().expect("PKCS11_LIB or SOFTHSM2_LIB env var")
 }
 
-fn dev_session(idx: u8) -> Pkcs11Session {
+fn make_config(slot_label: &str, pin: &str, path: &DerivationPath) -> Pkcs11Config {
+    Pkcs11Config::new(
+        pkcs11_lib_path(),
+        SlotIdentifier::label(slot_label),
+        pin.to_string(),
+        path.clone(),
+        Box::new(DevBackend),
+    )
+}
+
+fn test_session(path: &DerivationPath) -> (Pkcs11Session, String, String) {
     load_env();
-    let cfg = Pkcs11Config::from_env().expect("SOFTHSM2_LIB env var");
+    let label = std::env::var(TEST_LABEL_ENV).expect("HSM_TEST_LABEL env var");
+    let pin = std::env::var(TEST_PIN_ENV).expect("HSM_TEST_PIN env var");
+    let cfg = make_config(&label, &pin, path);
+    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
+        .expect("open test session");
+    (session, label, pin)
+}
+
+fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String, String, String) {
+    load_env();
     let label = std::env::var(format!("HSM_DEV_{idx}_LABEL"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_LABEL env var"));
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
-    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open dev session")
+    let mnemonic = std::env::var(format!("WALLET_TEST_{idx}_MNEMONIC"))
+        .unwrap_or_else(|_| panic!("WALLET_TEST_{idx}_MNEMONIC env var"));
+    let cfg = make_config(&label, &pin, path);
+    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
+        .expect("open dev session");
+    (session, label, pin, mnemonic)
 }
 
 /// Wipe a label off the test token so a re-running test starts clean.
@@ -71,10 +111,28 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     }
 }
 
+fn derive_test_signer(
+    session: Pkcs11Session,
+    label: &str,
+    path: &DerivationPath,
+) -> Pkcs11Signer {
+    let seed = mnemonic_to_seed_no_passphrase(TEST_MNEMONIC).expect("mnemonic_to_seed");
+    Pkcs11Signer::derive_from_seed(
+        session,
+        label,
+        path,
+        bitcoin::Network::Testnet,
+        Box::new(DevBackend),
+        seed.expose_secret().as_slice(),
+    )
+    .expect("derive_from_seed")
+}
+
 #[test]
 #[serial]
 fn connects_and_reads_token_label() {
-    let s = test_session();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
     let label = s.token_label().expect("token label");
     assert!(!label.is_empty(), "non-empty token label");
     println!("connected to token: {label}");
@@ -82,25 +140,23 @@ fn connects_and_reads_token_label() {
 
 #[test]
 #[serial]
-fn generates_key_and_exports_xpub() {
-    let s = test_session();
-    let label = "integration-keygen";
+fn derives_key_from_seed_and_exports_xpub() {
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
+    let label = "integration-derive";
     reset_label(&s, label);
 
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer =
-        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
+    let signer = derive_test_signer(s, label, &path);
 
     assert_eq!(signer.signer_type(), SignerType::Software);
     assert_eq!(
-        signer.supported_networks(),
-        vec![NetworkType::Bitcoin(bitcoin::Network::Testnet)]
+        signer.supported_networks().first(),
+        Some(&NetworkType::Bitcoin(bitcoin::Network::Testnet))
     );
     let xpub = signer.xpub();
-    assert_eq!(xpub.depth, 4);
-    println!("generated xpub: {xpub}");
+    assert_eq!(xpub.depth, 4, "expected depth 4 for m/48'/1'/0'/2'");
+    println!("derived xpub: {xpub}");
 
-    // Health check returns reachable.
     let h = signer.health_check().expect("health check");
     assert!(h.reachable);
 }
@@ -108,18 +164,23 @@ fn generates_key_and_exports_xpub() {
 #[test]
 #[serial]
 fn loads_existing_key_by_label() {
-    let s = test_session();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
     let label = "integration-load";
     reset_label(&s, label);
 
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let _first =
-        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
+    let _first = derive_test_signer(s, label, &path);
 
     // Open a fresh session and load by label.
-    let s2 = test_session();
-    let loaded =
-        Pkcs11Signer::load(s2, label, bitcoin::Network::Testnet).expect("load existing key");
+    let (s2, _, _) = test_session(&path);
+    let loaded = Pkcs11Signer::load(
+        s2,
+        label,
+        path.clone(),
+        bitcoin::Network::Testnet,
+        Box::new(DevBackend),
+    )
+    .expect("load existing key");
     assert!(loaded.label() == Some(label));
 }
 
@@ -129,13 +190,22 @@ fn three_of_five_federation_construction_from_dev_tokens() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
     let label = "fed-test-3of5";
 
-    // Generate a fresh key on each of the 5 dev tokens.
+    // Each dev token has its own mnemonic (loaded from env). Derive a
+    // fresh federation key on each and roll them up into a 3-of-5.
     let mut signers: Vec<Box<dyn Signer>> = Vec::with_capacity(5);
     for idx in 1..=5u8 {
-        let s = dev_session(idx);
+        let (s, _, _, mnemonic) = dev_session(idx, &path);
         reset_label(&s, label);
-        let signer = Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet)
-            .expect("generate dev key");
+        let seed = mnemonic_to_seed_no_passphrase(&mnemonic).expect("mnemonic_to_seed");
+        let signer = Pkcs11Signer::derive_from_seed(
+            s,
+            label,
+            &path,
+            bitcoin::Network::Testnet,
+            Box::new(DevBackend),
+            seed.expose_secret().as_slice(),
+        )
+        .expect("derive dev signer");
         signers.push(Box::new(signer));
     }
 
@@ -157,13 +227,12 @@ fn three_of_five_federation_construction_from_dev_tokens() {
 #[test]
 #[serial]
 fn minimal_hsm_policy_round_trip() {
-    let s = test_session();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
     let label = "integration-policy";
     reset_label(&s, label);
 
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer =
-        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
+    let signer = derive_test_signer(s, label, &path);
 
     // Default policy is permissive.
     let p0 = signer.policy().expect("read policy");
@@ -185,13 +254,12 @@ fn minimal_hsm_policy_round_trip() {
 fn minimal_hsm_policy_rejects_oversized_psbt() {
     use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
 
-    let s = test_session();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
     let label = "integration-policy-reject";
     reset_label(&s, label);
 
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer =
-        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
+    let signer = derive_test_signer(s, label, &path);
     signer
         .set_policy(&MinimalHsmPolicy {
             per_transaction_limit: Some(Amount::from_sat(500)),
@@ -241,13 +309,12 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     use bitcoin::secp256k1::Secp256k1;
     use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, absolute, transaction};
 
-    let s = test_session();
+    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
+    let (s, _, _) = test_session(&path);
     let label = "integration-bdk-sign";
     reset_label(&s, label);
 
-    let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let signer =
-        Pkcs11Signer::generate(s, label, &path, bitcoin::Network::Testnet).expect("generate key");
+    let signer = derive_test_signer(s, label, &path);
 
     let secp = Secp256k1::new();
     let id = SignerCommon::id(&signer, &secp);
@@ -288,7 +355,7 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     psbt.inputs[0].witness_script = Some(witness_script);
     psbt.inputs[0]
         .bip32_derivation
-        .insert(secp_pk, (signer.fingerprint(), path));
+        .insert(secp_pk, (signer.fingerprint(), path.clone()));
 
     signer
         .sign_transaction(&mut psbt, &SignOptions::default(), &secp)
@@ -301,7 +368,7 @@ fn signing_dispatches_via_bdk_transaction_signer() {
     );
 
     // Sanity: load the policy after signing — sigrate counter should be 1.
-    let session2 = test_session();
+    let (session2, _, _) = test_session(&path);
     let counter = policy::load_sigrate(&session2, label).expect("load sigrate");
     // Default policy has no limit, so counter shouldn't be incremented.
     let _ = counter;

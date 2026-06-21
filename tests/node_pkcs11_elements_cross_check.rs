@@ -28,10 +28,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use asterism_core::{ElementsNetworkId, NetworkType, Signer};
+use asterism_dev_signer::{DevBackend, mnemonic_to_seed_no_passphrase};
 use asterism_elements::{CtDescriptorBuilder, ElementsNetwork, ElementsSigner};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
+use secrecy::ExposeSecret;
 use serial_test::serial;
 
 fn load_env() {
@@ -42,14 +44,25 @@ fn load_env() {
     let _ = dotenvy::from_path(&env_path);
 }
 
-fn dev_session(idx: u8) -> Pkcs11Session {
+fn dev_session(idx: u8, path: &DerivationPath) -> (Pkcs11Session, String) {
     load_env();
-    let cfg = Pkcs11Config::from_env().expect("SOFTHSM2_LIB env var");
+    let lib = Pkcs11Config::library_path_from_env().expect("PKCS11_LIB env var");
     let label = std::env::var(format!("HSM_DEV_{idx}_LABEL"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_LABEL env var"));
     let pin = std::env::var(format!("HSM_DEV_{idx}_PIN"))
         .unwrap_or_else(|_| panic!("HSM_DEV_{idx}_PIN env var"));
-    Pkcs11Session::open(&cfg, &SlotIdentifier::label(label), &pin).expect("open dev session")
+    let mnemonic = std::env::var(format!("WALLET_TEST_{idx}_MNEMONIC"))
+        .unwrap_or_else(|_| panic!("WALLET_TEST_{idx}_MNEMONIC env var"));
+    let cfg = Pkcs11Config::new(
+        lib,
+        SlotIdentifier::label(&label),
+        pin.clone(),
+        path.clone(),
+        Box::new(DevBackend),
+    );
+    let session = Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin)
+        .expect("open dev session");
+    (session, mnemonic)
 }
 
 /// Wipe key + policy/sigrate DATA objects associated with `label` from a
@@ -89,10 +102,18 @@ fn pkcs11_ct_descriptor_round_trips_through_local_address_derivation() {
     let mut signers: Vec<Pkcs11Signer> = Vec::with_capacity(labels.len());
 
     for (i, label) in labels.iter().enumerate() {
-        let session = dev_session((i + 1) as u8);
+        let (session, mnemonic) = dev_session((i + 1) as u8, &path);
         reset_label(&session, label);
-        let signer = Pkcs11Signer::generate(session, label, &path, Network::Testnet)
-            .expect("generate HSM key for elements federation");
+        let seed = mnemonic_to_seed_no_passphrase(&mnemonic).expect("mnemonic_to_seed");
+        let signer = Pkcs11Signer::derive_from_seed(
+            session,
+            label,
+            &path,
+            Network::Testnet,
+            Box::new(DevBackend),
+            seed.expose_secret().as_slice(),
+        )
+        .expect("derive HSM key for elements federation");
         // The signer should advertise both Bitcoin and Liquid networks.
         let nets = signer.supported_networks();
         assert!(nets.contains(&NetworkType::Bitcoin(Network::Testnet)));
