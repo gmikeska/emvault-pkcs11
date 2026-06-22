@@ -32,8 +32,8 @@ use asterism_core::Signer;
 use asterism_dev_signer::DevBackend;
 use asterism_elements::{CtDescriptorBuilder, ElementsSigner};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::bip32::DerivationPath;
 use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 use elements::confidential;
 use elements::pset::PartiallySignedTransaction as Pset;
 use elements::secp256k1_zkp::{Message, Secp256k1};
@@ -111,10 +111,7 @@ fn make_signers(labels: &[&str], path: &DerivationPath) -> Vec<Pkcs11Signer> {
 /// We manually construct this because we're building a synthetic PSET without
 /// a wallet — the test must mirror the same script the descriptor would
 /// produce so the sighash matches.
-fn build_witness_script(
-    threshold: u32,
-    pubkeys: &mut [bitcoin::PublicKey],
-) -> elements::Script {
+fn build_witness_script(threshold: u32, pubkeys: &mut [bitcoin::PublicKey]) -> elements::Script {
     // sortedmulti sorts by the serialized compressed pubkey bytes.
     pubkeys.sort_by_key(|a| a.to_bytes());
 
@@ -253,11 +250,7 @@ fn build_synthetic_pset(
 #[serial]
 fn pset_signing_2of3_produces_partial_sigs() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let labels = [
-        "elements-e2e-1",
-        "elements-e2e-2",
-        "elements-e2e-3",
-    ];
+    let labels = ["elements-e2e-1", "elements-e2e-2", "elements-e2e-3"];
     let signers = make_signers(&labels, &path);
     let mut pset = build_synthetic_pset(&signers, 2, &path);
 
@@ -267,10 +260,7 @@ fn pset_signing_2of3_produces_partial_sigs() {
         let count = signer
             .sign_pset(&mut pset)
             .unwrap_or_else(|e| panic!("signer {i} sign_pset failed: {e}"));
-        assert_eq!(
-            count, 1,
-            "signer {i} should have signed exactly 1 input"
-        );
+        assert_eq!(count, 1, "signer {i} should have signed exactly 1 input");
     }
 
     assert_eq!(
@@ -298,9 +288,7 @@ fn pset_partial_sigs_are_valid_ecdsa() {
     let mut pset = build_synthetic_pset(&signers, 2, &path);
 
     for signer in &signers {
-        signer
-            .sign_pset(&mut pset)
-            .expect("sign_pset");
+        signer.sign_pset(&mut pset).expect("sign_pset");
     }
 
     // Recompute the sighash independently and verify each signature.
@@ -358,11 +346,7 @@ fn pset_partial_sigs_are_valid_ecdsa() {
 #[serial]
 fn pset_signing_skips_inputs_without_our_fingerprint() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let labels = [
-        "elements-skip-1",
-        "elements-skip-2",
-        "elements-skip-3",
-    ];
+    let labels = ["elements-skip-1", "elements-skip-2", "elements-skip-3"];
     let signers = make_signers(&labels, &path);
     let mut pset = build_synthetic_pset(&signers, 2, &path);
 
@@ -370,9 +354,7 @@ fn pset_signing_skips_inputs_without_our_fingerprint() {
     // should report 0 inputs signed.
     let removed_fp = signers[2].fingerprint();
     let removed_pk = bitcoin::PublicKey::new(signers[2].xpub().public_key);
-    pset.inputs_mut()[0]
-        .bip32_derivation
-        .remove(&removed_pk);
+    pset.inputs_mut()[0].bip32_derivation.remove(&removed_pk);
 
     let count = signers[2]
         .sign_pset(&mut pset)
@@ -398,11 +380,7 @@ fn pset_signing_skips_inputs_without_our_fingerprint() {
 #[serial]
 fn pset_signing_with_ct_descriptor_round_trip() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let labels = [
-        "elements-ct-1",
-        "elements-ct-2",
-        "elements-ct-3",
-    ];
+    let labels = ["elements-ct-1", "elements-ct-2", "elements-ct-3"];
     let signers = make_signers(&labels, &path);
 
     // Build a CT descriptor and verify it parses, then sign a PSET built
@@ -452,11 +430,7 @@ fn pset_signing_with_ct_descriptor_round_trip() {
 #[serial]
 fn pset_signing_idempotent() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let labels = [
-        "elements-idem-1",
-        "elements-idem-2",
-        "elements-idem-3",
-    ];
+    let labels = ["elements-idem-1", "elements-idem-2", "elements-idem-3"];
     let signers = make_signers(&labels, &path);
     let mut pset = build_synthetic_pset(&signers, 2, &path);
 

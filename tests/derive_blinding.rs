@@ -8,11 +8,11 @@ use std::str::FromStr;
 
 use asterism_core::Signer;
 use asterism_dev_signer::DevBackend;
-use asterism_elements::{CtDescriptorBuilder, ElementsNetwork};
 use asterism_elements::descriptor::CtKeyMode;
+use asterism_elements::{CtDescriptorBuilder, ElementsNetwork};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::bip32::DerivationPath;
 use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 
 fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -58,9 +58,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
 #[test]
 fn print_blinding_key_for_address_0() {
     let path = DerivationPath::from_str("m/48'/1'/0'/2'").unwrap();
-    let labels = [
-        "fed-bk-1", "fed-bk-2", "fed-bk-3", "fed-bk-4", "fed-bk-5",
-    ];
+    let labels = ["fed-bk-1", "fed-bk-2", "fed-bk-3", "fed-bk-4", "fed-bk-5"];
 
     let signers: Vec<Pkcs11Signer> = labels
         .iter()
@@ -70,8 +68,12 @@ fn print_blinding_key_for_address_0() {
             let session = dev_session(idx, &path);
             reset_label(&session, label);
             Pkcs11Signer::derive_from_seed(
-                session, label, &path, Network::Testnet,
-                Box::new(DevBackend), &[],
+                session,
+                label,
+                &path,
+                Network::Testnet,
+                Box::new(DevBackend),
+                &[],
             )
             .expect("derive HSM key")
         })
@@ -90,7 +92,9 @@ fn print_blinding_key_for_address_0() {
 
     // Derive the definite descriptor at index 0
     let definite = ct_desc.at_derivation_index(0).expect("definite");
-    let addr = definite.address(&secp, network.address_params()).expect("address");
+    let addr = definite
+        .address(&secp, network.address_params())
+        .expect("address");
 
     eprintln!("\nConfidential address [0]: {addr}");
 
@@ -106,7 +110,10 @@ fn print_blinding_key_for_address_0() {
     eprintln!("Script pubkey: {unconf_spk}");
 
     let bk_secret = slip77_mbk.blinding_private_key(&unconf_spk);
-    eprintln!("Blinding private key (hex): {}", hex::encode(bk_secret.secret_bytes()));
+    eprintln!(
+        "Blinding private key (hex): {}",
+        hex::encode(bk_secret.secret_bytes())
+    );
 
     // Verify: derive the public key from the private key and check it matches
     let bk_public = elements::secp256k1_zkp::PublicKey::from_secret_key(&secp, &bk_secret);

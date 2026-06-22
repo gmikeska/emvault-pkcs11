@@ -10,8 +10,8 @@ use asterism_core::Signer;
 use asterism_dev_signer::DevBackend;
 use asterism_elements::{CtDescriptorBuilder, ElementsNetwork};
 use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::bip32::DerivationPath;
 use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 
 fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
