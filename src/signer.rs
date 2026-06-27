@@ -1,5 +1,5 @@
 //! [`Pkcs11Signer`] — the HSM-backed implementation of
-//! [`asterism_core::Signer`] and [`bdk_wallet::signer::TransactionSigner`].
+//! [`emvault_core::Signer`] and [`bdk_wallet::signer::TransactionSigner`].
 //!
 //! `Pkcs11Signer` owns a [`Pkcs11Session`] and a
 //! [`Box<dyn HsmBackend>`](crate::backend::HsmBackend). The backend is the
@@ -17,7 +17,7 @@
 //!   leave the HSM; only the seed transits through the call (and only
 //!   long enough to feed it into `C_DeriveKey`).
 //! - [`Pkcs11Signer::load`] — the **operational** path. Looks up an
-//!   already-derived key by Asterism label and reads its xpub via
+//!   already-derived key by EmVault label and reads its xpub via
 //!   `backend.read_xpub()`. The HSM is the source of truth for the
 //!   chain code and the rest of the BIP-32 metadata.
 //!
@@ -30,7 +30,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use asterism_core::{
+use emvault_core::{
     Signer, SignerCapabilities, SignerId, SignerType, TransportType, error::SignerError,
     network::NetworkType, signer::SignerHealth,
 };
@@ -330,7 +330,7 @@ fn build_descriptor_key(
 }
 
 // ---------------------------------------------------------------------------
-// asterism_core::Signer
+// emvault_core::Signer
 // ---------------------------------------------------------------------------
 
 impl Signer for Pkcs11Signer {
@@ -362,10 +362,10 @@ impl Signer for Pkcs11Signer {
         {
             let mut networks = vec![NetworkType::Bitcoin(self.network)];
             let id = match self.network {
-                bitcoin::Network::Bitcoin => Some(asterism_core::ElementsNetworkId::Liquid),
-                bitcoin::Network::Testnet => Some(asterism_core::ElementsNetworkId::LiquidTestnet),
+                bitcoin::Network::Bitcoin => Some(emvault_core::ElementsNetworkId::Liquid),
+                bitcoin::Network::Testnet => Some(emvault_core::ElementsNetworkId::LiquidTestnet),
                 bitcoin::Network::Regtest => {
-                    Some(asterism_core::ElementsNetworkId::ElementsRegtest)
+                    Some(emvault_core::ElementsNetworkId::ElementsRegtest)
                 }
                 _ => None,
             };
@@ -458,7 +458,7 @@ impl TransactionSigner for Pkcs11Signer {
             let relative_path: bitcoin::bip32::DerivationPath = relative_segments.to_vec().into();
 
             // v1 supports P2WSH (Segwitv0) sighashes only — the common case
-            // for Asterism federations.
+            // for EmVault federations.
             let sighash_type = psbt.inputs[input_idx]
                 .sighash_type
                 .map(bitcoin::psbt::PsbtSighashType::ecdsa_hash_ty)

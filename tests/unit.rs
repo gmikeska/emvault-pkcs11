@@ -3,8 +3,8 @@
 //! Integration tests against a live PKCS#11 token live in `integration.rs`
 //! and are gated behind the `integration` feature.
 
-use asterism_core::SignerError;
-use asterism_pkcs11::{HsmBackendError, config::SlotIdentifier, error::Pkcs11Error};
+use emvault_core::SignerError;
+use emvault_pkcs11::{HsmBackendError, config::SlotIdentifier, error::Pkcs11Error};
 
 #[test]
 fn pkcs11_error_policy_violation_maps_to_signer_policy_violation() {

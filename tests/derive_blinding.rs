@@ -1,16 +1,16 @@
 //! Derive the SLIP-77 blinding private key for the federation's receive address.
-//! Run: cargo test -p asterism-pkcs11 --features "integration elements" --test derive_blinding -- --nocapture
+//! Run: cargo test -p emvault-pkcs11 --features "integration elements" --test derive_blinding -- --nocapture
 
 #![cfg(all(feature = "integration", feature = "elements"))]
 
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::Signer;
-use asterism_dev_signer::DevBackend;
-use asterism_elements::descriptor::CtKeyMode;
-use asterism_elements::{CtDescriptorBuilder, ElementsNetwork};
-use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
+use emvault_core::Signer;
+use emvault_dev_signer::DevBackend;
+use emvault_elements::descriptor::CtKeyMode;
+use emvault_elements::{CtDescriptorBuilder, ElementsNetwork};
+use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
 
@@ -18,7 +18,7 @@ fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("asterism-core/.env");
+        .join("emvault-core/.env");
     let _ = dotenvy::from_path(&env_path);
 }
 
@@ -43,7 +43,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     use cryptoki::object::{Attribute, ObjectClass};
     let _ = key_ops::delete_key(session, label);
     for suffix in ["policy", "sigrate"] {
-        let l = format!("asterism/v1/{label}/{suffix}");
+        let l = format!("emvault/v1/{label}/{suffix}");
         if let Ok(handles) = session.session().find_objects(&[
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(l.as_bytes().to_vec()),
@@ -87,7 +87,7 @@ fn print_blinding_key_for_address_0() {
     }
     let ct_desc = builder.build().expect("ct descriptor");
 
-    let secp = asterism_elements::elements_miniscript::elements::secp256k1_zkp::Secp256k1::new();
+    let secp = emvault_elements::elements_miniscript::elements::secp256k1_zkp::Secp256k1::new();
     let network = ElementsNetwork::ElementsRegtest;
 
     // Derive the definite descriptor at index 0
@@ -103,7 +103,7 @@ fn print_blinding_key_for_address_0() {
     eprintln!("Blinding pubkey: {}", blinding_pk);
 
     // Use the library's own Slip77 type to derive the blinding private key
-    use asterism_elements::elements_miniscript::slip77::MasterBlindingKey;
+    use emvault_elements::elements_miniscript::slip77::MasterBlindingKey;
 
     let slip77_mbk = MasterBlindingKey::from(mbk);
     let unconf_spk = definite.descriptor.script_pubkey();

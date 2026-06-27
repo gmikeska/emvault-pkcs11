@@ -12,7 +12,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo test -p asterism-pkcs11 --features "integration node-tests" \
+//! cargo test -p emvault-pkcs11 --features "integration node-tests" \
 //!   --test node_pkcs11_cross_check -- --nocapture
 //! ```
 #![cfg(all(feature = "integration", feature = "node-tests"))]
@@ -20,9 +20,9 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::{Federation, Signer, network::NetworkType};
-use asterism_dev_signer::DevBackend;
-use asterism_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
+use emvault_core::{Federation, Signer, network::NetworkType};
+use emvault_dev_signer::DevBackend;
+use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
 use miniscript::{Descriptor, DescriptorPublicKey};
@@ -41,7 +41,7 @@ fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("asterism-core/.env");
+        .join("emvault-core/.env");
     let _ = dotenvy::from_path(&env_path);
 }
 
@@ -68,7 +68,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     use cryptoki::object::{Attribute, ObjectClass};
     let _ = key_ops::delete_key(session, label);
     for suffix in ["policy", "sigrate"] {
-        let l = format!("asterism/v1/{label}/{suffix}");
+        let l = format!("emvault/v1/{label}/{suffix}");
         if let Ok(handles) = session.session().find_objects(&[
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(l.as_bytes().to_vec()),
@@ -145,7 +145,7 @@ fn pkcs11_3of5_descriptor_matches_bitcoin_core() {
 
     // Derive one federation key per dev token. The shim provides the
     // seed for each token's slot internally — see
-    // `libasterism_dev_hsm/README.md`. We pass `&[]` to tell it
+    // `libemvault_dev_hsm/README.md`. We pass `&[]` to tell it
     // "use whatever seed you have configured for this slot."
     let mut signers: Vec<Box<dyn Signer>> = Vec::with_capacity(5);
     for idx in 1..=5u8 {

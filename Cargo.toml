@@ -1,10 +1,10 @@
 [package]
-name = "asterism-pkcs11"
+name = "emvault-pkcs11"
 version = "0.1.0"
 edition = "2024"
 description = "PKCS#11-backed Signer implementation for the Emerald multi-signature custody platform."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/gmikeska/asterism-pkcs11"
+repository = "https://github.com/gmikeska/emvault-pkcs11"
 
 [features]
 default = []
@@ -14,16 +14,16 @@ integration = []
 # Combine with `integration` for HSM-backed federation cross-checks.
 node-tests = []
 # Enable Elements/Liquid signing on Pkcs11Signer. Activates the matching
-# `elements` feature on `asterism-core` and pulls in `asterism-elements`
+# `elements` feature on `emvault-core` and pulls in `emvault-elements`
 # so the HSM can produce ECDSA partial signatures over PSET inputs.
 # CT-specific operations (blinding, range proofs, surjection proofs) stay
 # software-side via LWK; the HSM only does ECDSA, identical to the
 # Bitcoin path.
-elements = ["asterism-core/elements", "dep:asterism-elements", "dep:elements"]
+elements = ["emvault-core/elements", "dep:emvault-elements", "dep:elements"]
 
 [dependencies]
-asterism-core = { version = "0.1.0", path = "../asterism-core" }
-asterism-elements = { version = "0.1.0", path = "../asterism-elements", optional = true }
+emvault-core = { version = "0.1.0", path = "../emvault-core" }
+emvault-elements = { version = "0.1.0", path = "../emvault-elements", optional = true }
 bdk_wallet = "3.1.0"
 bitcoin = "0.32.10"
 cryptoki = "0.12.0"
@@ -36,8 +36,8 @@ serde_json = "1.0.150"
 thiserror = "2.0.18"
 
 [dev-dependencies]
-asterism-core = { path = "../asterism-core", features = ["test-utils"] }
-asterism-dev-signer = { path = "../asterism-dev-signer" }
+emvault-core = { path = "../emvault-core", features = ["test-utils"] }
+emvault-dev-signer = { path = "../emvault-dev-signer" }
 dotenvy = "0.15.7"
 serial_test = "3.5.0"
 tempfile = "3.27.0"

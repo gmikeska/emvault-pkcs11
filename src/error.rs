@@ -1,10 +1,10 @@
-//! Error types for `asterism-pkcs11`.
+//! Error types for `emvault-pkcs11`.
 
-use asterism_core::SignerError;
+use emvault_core::SignerError;
 
 use crate::backend::HsmBackendError;
 
-/// All errors raised by `asterism-pkcs11`.
+/// All errors raised by `emvault-pkcs11`.
 #[derive(Debug, thiserror::Error)]
 pub enum Pkcs11Error {
     /// Failed to load the PKCS#11 library at the configured path.
@@ -82,11 +82,11 @@ impl From<Pkcs11Error> for SignerError {
     fn from(e: Pkcs11Error) -> Self {
         match e {
             Pkcs11Error::PolicyViolation(rule) => Self::PolicyViolation {
-                id: asterism_core::SignerId::new("pkcs11"),
+                id: emvault_core::SignerId::new("pkcs11"),
                 rule,
             },
             Pkcs11Error::HsmBackend(HsmBackendError::Derivation(reason)) => Self::SigningFailed {
-                id: asterism_core::SignerId::new("pkcs11"),
+                id: emvault_core::SignerId::new("pkcs11"),
                 reason: format!("backend derivation: {reason}"),
             },
             Pkcs11Error::HsmBackend(HsmBackendError::KeyNotFound { label }) => {

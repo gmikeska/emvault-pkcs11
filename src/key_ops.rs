@@ -2,7 +2,7 @@
 //!
 //! With the move to [`crate::backend::HsmBackend`]-driven BIP-32 derivation,
 //! this module no longer owns key generation or chain-code persistence —
-//! the HSM itself (real hardware, or `libasterism_dev_hsm.so` in dev) is the
+//! the HSM itself (real hardware, or `libemvault_dev_hsm.so` in dev) is the
 //! source of truth for derived keys and their BIP-32 metadata. The vendor
 //! BIP-32 attributes ([`HsmBackend::chain_code_attribute`] and friends)
 //! carry the chain code; there is no longer a separate `CKO_DATA` material
@@ -23,10 +23,10 @@ use cryptoki::object::{Attribute, ObjectClass, ObjectHandle};
 use crate::error::Pkcs11Error;
 use crate::session::Pkcs11Session;
 
-/// Asterism label namespace prefix. Every object created by this crate
-/// goes under `asterism/v1/{label}/...` so we can find them later without
+/// EmVault label namespace prefix. Every object created by this crate
+/// goes under `emvault/v1/{label}/...` so we can find them later without
 /// risk of colliding with externally-managed token contents.
-pub const PREFIX: &str = "asterism/v1";
+pub const PREFIX: &str = "emvault/v1";
 
 /// secp256k1 named-curve OID, DER-encoded:
 /// `OBJECT_IDENTIFIER (06 05 2B 81 04 00 0A) = 1.3.132.0.10`.
@@ -47,14 +47,14 @@ pub struct LoadedKey {
     pub private_key: ObjectHandle,
 }
 
-/// Build the canonical Asterism label for the federation-derivation
+/// Build the canonical EmVault label for the federation-derivation
 /// private key. Mirrors the layout the dev shim and production HSMs
 /// expect.
 pub fn priv_label(label: &str) -> String {
     format!("{PREFIX}/{label}/{PRIV_SUFFIX}")
 }
 
-/// Build the canonical Asterism label for the federation-derivation
+/// Build the canonical EmVault label for the federation-derivation
 /// public key.
 pub fn pub_label(label: &str) -> String {
     format!("{PREFIX}/{label}/{PUB_SUFFIX}")
@@ -62,8 +62,8 @@ pub fn pub_label(label: &str) -> String {
 
 /// Look up a previously-derived key by label.
 ///
-/// Returns `None` if no key with `label` exists on the token. Asterism
-/// labels are namespaced as `asterism/v1/{label}/priv`.
+/// Returns `None` if no key with `label` exists on the token. EmVault
+/// labels are namespaced as `emvault/v1/{label}/priv`.
 ///
 /// # Errors
 ///
@@ -95,10 +95,10 @@ pub fn find_key_by_label(
     }))
 }
 
-/// Delete every Asterism object associated with `label` from the token.
+/// Delete every EmVault object associated with `label` from the token.
 ///
 /// Removes the federation-derivation private and public key objects under
-/// `asterism/v1/{label}/{priv,pub}`. The dev shim destroys its companion
+/// `emvault/v1/{label}/{priv,pub}`. The dev shim destroys its companion
 /// BIP-32 metadata automatically when the key is destroyed (per the dev
 /// shim's `C_DestroyObject` interception); production HSMs carry their
 /// metadata as vendor attributes on the key itself.
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn label_helpers_use_namespace() {
-        assert_eq!(priv_label("foo"), "asterism/v1/foo/priv");
-        assert_eq!(pub_label("foo"), "asterism/v1/foo/pub");
+        assert_eq!(priv_label("foo"), "emvault/v1/foo/priv");
+        assert_eq!(pub_label("foo"), "emvault/v1/foo/pub");
     }
 }

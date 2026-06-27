@@ -1,6 +1,6 @@
-//! # asterism-pkcs11
+//! # emvault-pkcs11
 //!
-//! PKCS#11-backed [`asterism_core::Signer`] implementation. Talks to any
+//! PKCS#11-backed [`emvault_core::Signer`] implementation. Talks to any
 //! PKCS#11-compatible HSM through the [`cryptoki`] crate, with vendor
 //! BIP-32 derivation routed through the [`HsmBackend`] trait.
 //!
@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! ┌─────────────────────────────────────────┐
-//! │              asterism-pkcs11             │
+//! │              emvault-pkcs11             │
 //! │                                          │
 //! │  Pkcs11Signer ──► HsmBackend ──► cryptoki│
 //! │                                          │
@@ -22,7 +22,7 @@
 //!      hardware BIP-32                  SoftHSM + sw BIP-32
 //! ```
 //!
-//! Asterism's compiled code is identical in every case. The only thing
+//! EmVault's compiled code is identical in every case. The only thing
 //! that varies is which mechanism IDs the backend instructs `cryptoki` to
 //! send. The dev shim's "cheating" (software BIP-32 derivation) lives
 //! behind the PKCS#11 ABI boundary, not in this crate — there are no
@@ -31,21 +31,21 @@
 //! Production-HSM `HsmBackend` implementations live in their own
 //! downstream crates (one per vendor SDK); see those crates for usage
 //! examples. The development backend ships in
-//! [`asterism-dev-signer`](https://docs.rs/asterism-dev-signer) and is the
+//! [`emvault-dev-signer`](https://docs.rs/emvault-dev-signer) and is the
 //! basis for the example below.
 //!
 //! ## Quick example (development backend)
 //!
 //! ```ignore
-//! use asterism_dev_signer::DevBackend;
-//! use asterism_pkcs11::{
+//! use emvault_dev_signer::DevBackend;
+//! use emvault_pkcs11::{
 //!     Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier,
 //! };
 //! use bitcoin::bip32::DerivationPath;
 //! use std::str::FromStr;
 //!
 //! let cfg = Pkcs11Config::new(
-//!     "/path/to/libasterism_dev_hsm.so",
+//!     "/path/to/libemvault_dev_hsm.so",
 //!     SlotIdentifier::label("dev-app-1"),
 //!     "user-pin".to_string(),
 //!     DerivationPath::from_str("m/48'/1'/0'/2'")?,
@@ -98,7 +98,7 @@ pub mod policy;
 pub mod session;
 pub mod signer;
 
-pub use asterism_core;
+pub use emvault_core;
 pub use bitcoin;
 pub use cryptoki;
 pub use miniscript;

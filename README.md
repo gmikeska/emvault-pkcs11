@@ -1,10 +1,10 @@
-# asterism-pkcs11
+# emvault-pkcs11
 
-> PKCS#11-backed [`Signer`](https://github.com/gmikeska/asterism-core)
+> PKCS#11-backed [`Signer`](https://github.com/gmikeska/emvault-core)
 > implementation for the Emerald multi-signature custody platform.
 
-`asterism-pkcs11` is the Hardware Security Module (HSM) backend for
-[`asterism-core`]. It implements both `asterism_core::Signer` (so the signer
+`emvault-pkcs11` is the Hardware Security Module (HSM) backend for
+[`emvault-core`]. It implements both `emvault_core::Signer` (so the signer
 participates in federation construction, descriptor building, and recovery)
 and `bdk_wallet::signer::TransactionSigner` (so BDK can dispatch PSBT
 signing to it transparently).
@@ -15,14 +15,14 @@ the [`HsmBackend`] trait. Production-HSM `HsmBackend` implementations
 live in their own downstream crates (one per vendor SDK) so each
 deployment pulls in only the vendor it actually uses, while the matching
 development backend (`DevBackend`) lives in the separate
-[`asterism-dev-signer`] crate so dev-only code never lands in production
+[`emvault-dev-signer`] crate so dev-only code never lands in production
 builds.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
-│              asterism-pkcs11             │
+│              emvault-pkcs11             │
 │                                          │
 │  Pkcs11Signer ──► HsmBackend ──► cryptoki│
 │                                          │
@@ -36,7 +36,7 @@ builds.
      hardware BIP-32                  SoftHSM + sw BIP-32
 ```
 
-Asterism's compiled code is identical in every case. The only thing that
+EmVault's compiled code is identical in every case. The only thing that
 varies is which mechanism IDs the backend instructs `cryptoki` to send.
 The dev shim's "cheating" (software BIP-32 derivation behind the PKCS#11
 ABI) is invisible to this crate.
@@ -64,7 +64,7 @@ This crate honors the priorities laid out in `.cursorrules`:
    integrators register a `Pkcs11Signer` with `Wallet::add_signer()` and
    call `Wallet::sign()` exactly as they would for any software signer.
 6. **Security & auditability** — private keys never leave the HSM.
-   Asterism's compiled code never sees plaintext key material; the
+   EmVault's compiled code never sees plaintext key material; the
    `derive_from_seed` constructor passes the seed straight to the HSM via
    `C_DeriveKey`. The optional `MinimalHsmPolicy` enforces per-transaction
    limits, signature-rate ceilings, and destination whitelists at the
@@ -86,15 +86,15 @@ src/
 ├── ecdsa.rs            sign_with_low_s (BIP-146 canonicalization on top of CKM_ECDSA)
 ├── key_ops.rs          find_key_by_label, delete_key, label helpers, EC point DER helpers
 ├── policy.rs           MinimalHsmPolicy + SigRateCounter, persisted as CKO_DATA objects
-├── signer.rs           Pkcs11Signer impl asterism_core::Signer
+├── signer.rs           Pkcs11Signer impl emvault_core::Signer
 │                       + impl bdk_wallet::signer::TransactionSigner
-└── error.rs            Pkcs11Error + From<Pkcs11Error> for asterism_core::SignerError
+└── error.rs            Pkcs11Error + From<Pkcs11Error> for emvault_core::SignerError
 ```
 
 ## On-token object model
 
 Each `Pkcs11Signer` materializes as objects on its token, all with
-`CKA_TOKEN=true`, prefixed with `asterism/v1/{label}/`:
+`CKA_TOKEN=true`, prefixed with `emvault/v1/{label}/`:
 
 | Object         | Class                | Notes                                                               |
 | -------------- | -------------------- | ------------------------------------------------------------------- |
@@ -116,16 +116,16 @@ downstream crate, point `library_path` at the vendor's `.so`, and pass a
 real 64-byte BIP-32 seed instead of the empty slice.
 
 ```rust,ignore
-use asterism_core::{Federation, NetworkType, Signer};
-use asterism_dev_signer::DevBackend;
-use asterism_pkcs11::{
+use emvault_core::{Federation, NetworkType, Signer};
+use emvault_dev_signer::DevBackend;
+use emvault_pkcs11::{
     Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier,
 };
 use bitcoin::bip32::DerivationPath;
 use std::str::FromStr;
 
 let cfg = Pkcs11Config::new(
-    "/path/to/libasterism_dev_hsm.so",
+    "/path/to/libemvault_dev_hsm.so",
     SlotIdentifier::label("dev-app-1"),
     "user-pin".to_string(),
     DerivationPath::from_str("m/48'/1'/0'/2'")?,
@@ -152,13 +152,13 @@ println!("descriptor: {}", federation.descriptor_string());
 ```
 
 For convenience scripts that wire SoftHSM tokens, slot allocation, and a
-default federation in one shot, use [`asterism-dev-signer`]'s
+default federation in one shot, use [`emvault-dev-signer`]'s
 `setup_dev_federation()` helper.
 
 ## Signing flow (BDK integration)
 
 ```text
-asterism_core::SigningCoordinator (Software path)
+emvault_core::SigningCoordinator (Software path)
     │
     ▼
 bdk_wallet::Wallet::sign  ──►  walks `partial_sigs`, dispatches to TransactionSigner
@@ -178,14 +178,14 @@ Pkcs11Signer::sign_transaction
 
 The signer never finalizes the PSBT itself; once threshold partial
 signatures are collected, the consumer calls `Wallet::finalize_psbt()`
-(which `asterism_core::SigningCoordinator::finalize` wraps).
+(which `emvault_core::SigningCoordinator::finalize` wraps).
 
 ## Cargo features
 
 - `default = []` — minimal v1 build (vendor-agnostic core only).
 - `elements` — adds Elements/Liquid signing on top of `Pkcs11Signer`.
 - `integration` — enables the `tests/integration.rs` suite (requires a
-  running PKCS#11 token; see `../asterism-dev-signer` for the dev path).
+  running PKCS#11 token; see `../emvault-dev-signer` for the dev path).
 - `node-tests` — enables `tests/node_pkcs11_cross_check.rs`, which
   builds HSM-backed federations and cross-validates descriptors /
   addresses against a running Bitcoin Core node via `BITCOIN_RPC_*`
@@ -195,21 +195,21 @@ signatures are collected, the consumer calls `Wallet::finalize_psbt()`
 
 ```bash
 # Unit tests (no HSM required):
-cargo test -p asterism-pkcs11
+cargo test -p emvault-pkcs11
 
 # Integration tests (require a PKCS#11 token; the recommended dev path is
-# the libasterism_dev_hsm.so shim driven by asterism-dev-signer):
-cargo test -p asterism-pkcs11 --features integration -- --test-threads=1
+# the libemvault_dev_hsm.so shim driven by emvault-dev-signer):
+cargo test -p emvault-pkcs11 --features integration -- --test-threads=1
 
 # HSM + bitcoind cross-validation (also requires BITCOIN_RPC_* in .env):
-cargo test -p asterism-pkcs11 --features "integration node-tests" \
+cargo test -p emvault-pkcs11 --features "integration node-tests" \
   --test node_pkcs11_cross_check -- --nocapture
 
 # Doc build:
-cargo doc -p asterism-pkcs11 --no-deps
+cargo doc -p emvault-pkcs11 --no-deps
 ```
 
-Integration tests read PKCS#11 credentials from `../asterism-core/.env`
+Integration tests read PKCS#11 credentials from `../emvault-core/.env`
 (via `dotenvy`) and serialize access via `serial_test::serial` so the
 shared token state is stable across runs. `node-tests` skip gracefully
 when the bitcoind RPC endpoint is unreachable.
@@ -218,7 +218,7 @@ when the bitcoind RPC endpoint is unreachable.
 
 MIT OR Apache-2.0
 
-[`asterism-core`]: https://github.com/gmikeska/asterism-core
-[`asterism-dev-signer`]: https://github.com/gmikeska/asterism-dev-signer
+[`emvault-core`]: https://github.com/gmikeska/emvault-core
+[`emvault-dev-signer`]: https://github.com/gmikeska/emvault-dev-signer
 [`cryptoki`]: https://crates.io/crates/cryptoki
 [`HsmBackend`]: src/backend/mod.rs

@@ -1,4 +1,4 @@
-//! [`asterism_elements::ElementsSigner`] implementation for [`Pkcs11Signer`].
+//! [`emvault_elements::ElementsSigner`] implementation for [`Pkcs11Signer`].
 //!
 //! The HSM produces ECDSA partial signatures over PSET inputs identically
 //! to the Bitcoin path: it doesn't see (or care about) confidential
@@ -12,12 +12,12 @@
 //! [`bitcoin::sighash::SighashCache::p2wsh_signature_hash`] for
 //! [`elements::sighash::SighashCache::segwitv0_sighash`].
 //!
-//! Activated by the `elements` cargo feature on `asterism-pkcs11`, which
-//! also activates the matching `elements` feature on `asterism-core`.
+//! Activated by the `elements` cargo feature on `emvault-pkcs11`, which
+//! also activates the matching `elements` feature on `emvault-core`.
 
-use asterism_core::Signer;
-use asterism_elements::ElementsSigner;
-use asterism_elements::error::PsetError;
+use emvault_core::Signer;
+use emvault_elements::ElementsSigner;
+use emvault_elements::error::PsetError;
 use elements::hashes::Hash;
 use elements::pset::PartiallySignedTransaction as Pset;
 use elements::sighash::SighashCache;

@@ -10,12 +10,12 @@
 //! - In production, the library is the vendor's HSM driver. Vendor-specific
 //!   `HsmBackend` implementations live in their own downstream crates so
 //!   each deployment pulls in only the vendor SDK it actually uses.
-//! - In development and CI, the library is `libasterism_dev_hsm.so` — a shim
+//! - In development and CI, the library is `libemvault_dev_hsm.so` — a shim
 //!   that wraps SoftHSM 2 and implements BIP-32 derivation in software. The
 //!   matching backend, `DevBackend`, lives in the separate
-//!   `asterism-dev-signer` crate so it never compiles into production builds.
+//!   `emvault-dev-signer` crate so it never compiles into production builds.
 //!
-//! Asterism's compiled code is identical in every case. The only thing that
+//! EmVault's compiled code is identical in every case. The only thing that
 //! varies is which mechanism IDs the backend instructs `cryptoki` to send.
 //!
 //! ## What this trait is for

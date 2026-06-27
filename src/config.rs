@@ -6,7 +6,7 @@
 //!
 //! - **`library_path`** — which PKCS#11 shared library to load. In
 //!   production this is the vendor's `.so` shipped with their HSM SDK. In
-//!   development and CI it's `libasterism_dev_hsm.so` — the PKCS#11 shim
+//!   development and CI it's `libemvault_dev_hsm.so` — the PKCS#11 shim
 //!   that wraps SoftHSM 2 with software BIP-32 derivation.
 //! - **`slot`** — which token to talk to (by label or numeric slot id).
 //! - **`pin`** — user PIN, held in [`secrecy::SecretString`] so it doesn't
@@ -131,10 +131,10 @@ mod tests {
 
     #[test]
     fn slot_identifier_serializes_with_kind_tag() {
-        let label = SlotIdentifier::label("asterism-test");
+        let label = SlotIdentifier::label("emvault-test");
         let json = serde_json::to_string(&label).unwrap();
         assert!(json.contains("\"kind\":\"label\""), "got {json}");
-        assert!(json.contains("\"asterism-test\""));
+        assert!(json.contains("\"emvault-test\""));
     }
 
     #[test]

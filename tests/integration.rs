@@ -1,10 +1,10 @@
-//! Integration tests against the `libasterism_dev_hsm.so` shim
+//! Integration tests against the `libemvault_dev_hsm.so` shim
 //! (SoftHSM 2 + software BIP-32 derivation).
 //!
 //! Gated behind the `integration` feature. Reads HSM credentials from
-//! `../asterism-core/.env` via [`dotenvy`]:
+//! `../emvault-core/.env` via [`dotenvy`]:
 //!
-//! - `PKCS11_LIB` — path to `libasterism_dev_hsm.so`
+//! - `PKCS11_LIB` — path to `libemvault_dev_hsm.so`
 //! - `SOFTHSM2_LIB` — path to `libsofthsm2.so` (read by the shim)
 //! - `HSM_TEST_LABEL`, `HSM_TEST_PIN` — disposable token used for
 //!   per-test scratch state. Wiped between tests.
@@ -12,10 +12,10 @@
 //!   federation set.
 //!
 //! Seed material (`DEV_HSM_SLOT_{i}_MNEMONIC` env vars or a
-//! `DEV_HSM_CONFIG=...` TOML file) lives **inside the shim**. Asterism
+//! `DEV_HSM_CONFIG=...` TOML file) lives **inside the shim**. EmVault
 //! never sees a mnemonic; `derive_from_seed` is called with `&[]` and
 //! the shim substitutes the right preloaded seed for the session's
-//! slot. See `libasterism_dev_hsm/README.md`.
+//! slot. See `libemvault_dev_hsm/README.md`.
 //!
 //! Tests are serialized via [`serial_test`] because PKCS#11 sessions
 //! are token-locked.
@@ -24,8 +24,8 @@
 //!
 //! ```bash
 //! # one-time:
-//! cd ../libasterism_dev_hsm && cargo build --release
-//! cd ../asterism-pkcs11
+//! cd ../libemvault_dev_hsm && cargo build --release
+//! cd ../emvault-pkcs11
 //! cargo test --features integration -- --nocapture
 //! ```
 #![cfg(feature = "integration")]
@@ -33,9 +33,9 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use asterism_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
-use asterism_dev_signer::DevBackend;
-use asterism_pkcs11::{
+use emvault_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
+use emvault_dev_signer::DevBackend;
+use emvault_pkcs11::{
     MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops, policy,
 };
 use bitcoin::bip32::DerivationPath;
@@ -48,7 +48,7 @@ fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("asterism-core/.env");
+        .join("emvault-core/.env");
     let _ = dotenvy::from_path(&env_path);
 }
 
@@ -94,7 +94,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     let _ = key_ops::delete_key(session, label);
     // Also wipe any leftover policy/sigrate DATA objects from prior runs.
     for suffix in ["policy", "sigrate"] {
-        let l = format!("asterism/v1/{label}/{suffix}");
+        let l = format!("emvault/v1/{label}/{suffix}");
         if let Ok(handles) = session.session().find_objects(&[
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(l.as_bytes().to_vec()),
@@ -284,7 +284,7 @@ fn minimal_hsm_policy_rejects_oversized_psbt() {
         .unwrap_err();
     assert!(matches!(
         err,
-        asterism_pkcs11::Pkcs11Error::PolicyViolation(_)
+        emvault_pkcs11::Pkcs11Error::PolicyViolation(_)
     ));
 }
 

@@ -2,7 +2,7 @@
 //!
 //! `MinimalHsmPolicy` is a small set of checks evaluated **before** the HSM
 //! signs any input. It complements the application-level
-//! `asterism-policy::PolicyEngine` (which lives outside the HSM) with a
+//! `emvault-policy::PolicyEngine` (which lives outside the HSM) with a
 //! second line of defense that survives compromise of the application
 //! server.
 //!
@@ -24,7 +24,7 @@
 //! Anything stateful beyond the sig-rate counter (e.g. cumulative daily
 //! totals across multiple transactions, time-of-day windows, role-based
 //! authorization). That richer logic is the job of the application-level
-//! `asterism-policy::PolicyEngine`.
+//! `emvault-policy::PolicyEngine`.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,7 +36,7 @@ use crate::error::Pkcs11Error;
 use crate::session::Pkcs11Session;
 
 /// HSM-resident policy. Stored as a `CKO_DATA` object labelled
-/// `asterism/v1/{label}/policy`.
+/// `emvault/v1/{label}/policy`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MinimalHsmPolicy {
     /// Reject signing if any PSBT's total output value exceeds this amount.
@@ -111,7 +111,7 @@ impl MinimalHsmPolicy {
 }
 
 /// Sig-rate counter persisted alongside [`MinimalHsmPolicy`] as a `CKO_DATA`
-/// object labelled `asterism/v1/{label}/sigrate`.
+/// object labelled `emvault/v1/{label}/sigrate`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SigRateCounter {
     /// Unix-second timestamps of recent signing operations, oldest first.
@@ -142,7 +142,7 @@ impl SigRateCounter {
 // Persistence helpers
 // ---------------------------------------------------------------------------
 
-const POLICY_PREFIX: &str = "asterism/v1";
+const POLICY_PREFIX: &str = "emvault/v1";
 
 fn policy_label(label: &str) -> String {
     format!("{POLICY_PREFIX}/{label}/policy")
@@ -214,7 +214,7 @@ pub fn save_policy(
         Attribute::Token(true),
         Attribute::Private(true),
         Attribute::Label(policy_label(label).as_bytes().to_vec()),
-        Attribute::Application(b"asterism-pkcs11".to_vec()),
+        Attribute::Application(b"emvault-pkcs11".to_vec()),
         Attribute::Value(bytes),
     ];
     s.create_object(&attrs).map_err(Pkcs11Error::Pkcs11)
@@ -282,7 +282,7 @@ pub fn save_sigrate(
         Attribute::Token(true),
         Attribute::Private(true),
         Attribute::Label(sigrate_label(label).as_bytes().to_vec()),
-        Attribute::Application(b"asterism-pkcs11".to_vec()),
+        Attribute::Application(b"emvault-pkcs11".to_vec()),
         Attribute::Value(bytes),
     ];
     s.create_object(&attrs).map_err(Pkcs11Error::Pkcs11)?;
