@@ -535,3 +535,75 @@ impl TransactionSigner for Pkcs11Signer {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Network-patched signer wrapper
+// ---------------------------------------------------------------------------
+
+/// Adapter around [`Pkcs11Signer`] that re-stamps the xpub network kind.
+///
+/// The dev-shim backend (and the default `HsmBackend::read_xpub`
+/// implementation) always reports an xpub with `NetworkKind::Main`, while a
+/// wallet may run on `Network::Regtest`/`Testnet`. `DescriptorBuilder` rejects
+/// that mismatch with `DescriptorError::NetworkMismatch`. This wrapper carries a
+/// cloned xpub with the `network` field corrected so federation construction
+/// succeeds; the underlying chain code, public key, and BIP-32 metadata are
+/// untouched, and the actual `cryptoki` signing path still runs through the
+/// inner [`Pkcs11Signer`] (registered separately on `bdk_wallet::Wallet` via
+/// `add_signer`). Any PKCS#11 consumer on a non-mainnet network needs this.
+#[derive(Clone, Debug)]
+pub struct NetworkPatchedSigner {
+    inner: Pkcs11Signer,
+    patched_xpub: Xpub,
+}
+
+impl NetworkPatchedSigner {
+    /// Wrap `inner` with an xpub network kind matching `network`.
+    #[must_use]
+    pub fn new(inner: Pkcs11Signer, network: bitcoin::Network) -> Self {
+        let mut xpub = *inner.xpub();
+        xpub.network = bitcoin::NetworkKind::from(network);
+        Self {
+            inner,
+            patched_xpub: xpub,
+        }
+    }
+
+    /// Borrow the inner [`Pkcs11Signer`].
+    #[must_use]
+    pub fn inner(&self) -> &Pkcs11Signer {
+        &self.inner
+    }
+}
+
+impl Signer for NetworkPatchedSigner {
+    fn id(&self) -> SignerId {
+        // `Pkcs11Signer` also impls bdk's `SignerCommon::id` (both traits are in
+        // scope in this module), so disambiguate to the core `Signer` trait.
+        Signer::id(&self.inner)
+    }
+    fn label(&self) -> Option<&str> {
+        self.inner.label()
+    }
+    fn xpub(&self) -> &Xpub {
+        &self.patched_xpub
+    }
+    fn fingerprint(&self) -> Fingerprint {
+        self.inner.fingerprint()
+    }
+    fn derivation_path(&self) -> &DerivationPath {
+        self.inner.derivation_path()
+    }
+    fn signer_type(&self) -> SignerType {
+        self.inner.signer_type()
+    }
+    fn supported_networks(&self) -> Vec<NetworkType> {
+        self.inner.supported_networks()
+    }
+    fn capabilities(&self) -> SignerCapabilities {
+        self.inner.capabilities()
+    }
+    fn health_check(&self) -> Result<SignerHealth, SignerError> {
+        self.inner.health_check()
+    }
+}

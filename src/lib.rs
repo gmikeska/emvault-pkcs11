@@ -108,4 +108,4 @@ pub use config::{Pkcs11Config, SlotIdentifier};
 pub use error::Pkcs11Error;
 pub use policy::MinimalHsmPolicy;
 pub use session::Pkcs11Session;
-pub use signer::Pkcs11Signer;
+pub use signer::{NetworkPatchedSigner, Pkcs11Signer};
