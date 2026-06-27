@@ -2,7 +2,7 @@
 name = "emvault-pkcs11"
 version = "0.1.0"
 edition = "2024"
-description = "PKCS#11-backed Signer implementation for the Emerald multi-signature custody platform."
+description = "PKCS#11-backed Signer implementation for the EmVault multi-signature custody platform."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/gmikeska/emvault-pkcs11"
 
