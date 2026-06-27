@@ -1,7 +1,7 @@
 # asterism-pkcs11
 
-> PKCS#11-backed [`Signer`](../asterism-core/src/signer.rs) implementation for
-> the Emerald multi-signature custody platform.
+> PKCS#11-backed [`Signer`](https://github.com/gmikeska/asterism-core)
+> implementation for the Emerald multi-signature custody platform.
 
 `asterism-pkcs11` is the Hardware Security Module (HSM) backend for
 [`asterism-core`]. It implements both `asterism_core::Signer` (so the signer
@@ -218,7 +218,7 @@ when the bitcoind RPC endpoint is unreachable.
 
 MIT OR Apache-2.0
 
-[`asterism-core`]: ../asterism-core/
-[`asterism-dev-signer`]: ../asterism-dev-signer/
+[`asterism-core`]: https://github.com/gmikeska/asterism-core
+[`asterism-dev-signer`]: https://github.com/gmikeska/asterism-dev-signer
 [`cryptoki`]: https://crates.io/crates/cryptoki
 [`HsmBackend`]: src/backend/mod.rs
