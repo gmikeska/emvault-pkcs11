@@ -30,10 +30,6 @@
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use emvault_core::{
-    Signer, SignerCapabilities, SignerId, SignerType, TransportType, error::SignerError,
-    network::NetworkType, signer::SignerHealth,
-};
 use bdk_wallet::SignOptions;
 use bdk_wallet::signer::{
     SignerCommon, SignerError as BdkSignerError, SignerId as BdkSignerId, TransactionSigner,
@@ -43,6 +39,10 @@ use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{All, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
+use emvault_core::{
+    Signer, SignerCapabilities, SignerId, SignerType, TransportType, error::SignerError,
+    network::NetworkType, signer::SignerHealth,
+};
 use miniscript::DescriptorPublicKey;
 
 use crate::backend::HsmBackend;
@@ -364,9 +364,7 @@ impl Signer for Pkcs11Signer {
             let id = match self.network {
                 bitcoin::Network::Bitcoin => Some(emvault_core::ElementsNetworkId::Liquid),
                 bitcoin::Network::Testnet => Some(emvault_core::ElementsNetworkId::LiquidTestnet),
-                bitcoin::Network::Regtest => {
-                    Some(emvault_core::ElementsNetworkId::ElementsRegtest)
-                }
+                bitcoin::Network::Regtest => Some(emvault_core::ElementsNetworkId::ElementsRegtest),
                 _ => None,
             };
             if let Some(id) = id {

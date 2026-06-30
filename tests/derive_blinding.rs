@@ -6,13 +6,13 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 use emvault_core::Signer;
 use emvault_dev_signer::DevBackend;
 use emvault_elements::descriptor::CtKeyMode;
 use emvault_elements::{CtDescriptorBuilder, ElementsNetwork};
 use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::Network;
-use bitcoin::bip32::DerivationPath;
 
 fn load_env() {
     let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -28,15 +28,15 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use emvault_core::Signer;
-use emvault_dev_signer::DevBackend;
-use emvault_elements::{CtDescriptorBuilder, ElementsSigner};
-use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use bitcoin::Network;
 use bitcoin::bip32::DerivationPath;
 use elements::confidential;
 use elements::pset::PartiallySignedTransaction as Pset;
 use elements::secp256k1_zkp::{Message, Secp256k1};
+use emvault_core::Signer;
+use emvault_dev_signer::DevBackend;
+use emvault_elements::{CtDescriptorBuilder, ElementsSigner};
+use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
 use serial_test::serial;
 
 // ---------------------------------------------------------------------------

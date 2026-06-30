@@ -20,11 +20,11 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 use emvault_core::{Federation, Signer, network::NetworkType};
 use emvault_dev_signer::DevBackend;
 use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::Network;
-use bitcoin::bip32::DerivationPath;
 use miniscript::{Descriptor, DescriptorPublicKey};
 use serial_test::serial;
 

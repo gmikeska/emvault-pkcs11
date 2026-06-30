@@ -33,12 +33,12 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use bitcoin::bip32::DerivationPath;
 use emvault_core::{Signer, federation::Federation, network::NetworkType, signer::SignerType};
 use emvault_dev_signer::DevBackend;
 use emvault_pkcs11::{
     MinimalHsmPolicy, Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops, policy,
 };
-use bitcoin::bip32::DerivationPath;
 use serial_test::serial;
 
 const TEST_LABEL_ENV: &str = "HSM_TEST_LABEL";

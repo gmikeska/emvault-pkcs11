@@ -15,12 +15,12 @@
 //! Activated by the `elements` cargo feature on `emvault-pkcs11`, which
 //! also activates the matching `elements` feature on `emvault-core`.
 
-use emvault_core::Signer;
-use emvault_elements::ElementsSigner;
-use emvault_elements::error::PsetError;
 use elements::hashes::Hash;
 use elements::pset::PartiallySignedTransaction as Pset;
 use elements::sighash::SighashCache;
+use emvault_core::Signer;
+use emvault_elements::ElementsSigner;
+use emvault_elements::error::PsetError;
 
 use crate::policy;
 use crate::signer::Pkcs11Signer;

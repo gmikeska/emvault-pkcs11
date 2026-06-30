@@ -27,12 +27,12 @@ use std::env;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use bitcoin::Network;
+use bitcoin::bip32::DerivationPath;
 use emvault_core::{ElementsNetworkId, NetworkType, Signer};
 use emvault_dev_signer::DevBackend;
 use emvault_elements::{CtDescriptorBuilder, ElementsNetwork, ElementsSigner};
 use emvault_pkcs11::{Pkcs11Config, Pkcs11Session, Pkcs11Signer, SlotIdentifier, key_ops};
-use bitcoin::Network;
-use bitcoin::bip32::DerivationPath;
 use serial_test::serial;
 
 fn load_env() {

@@ -98,9 +98,9 @@ pub mod policy;
 pub mod session;
 pub mod signer;
 
-pub use emvault_core;
 pub use bitcoin;
 pub use cryptoki;
+pub use emvault_core;
 pub use miniscript;
 
 pub use backend::{HsmBackend, HsmBackendError, MasterKeyHandle};
