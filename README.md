@@ -1,7 +1,7 @@
 # emvault-pkcs11
 
 > PKCS#11-backed [`Signer`](https://github.com/gmikeska/emvault-core)
-> implementation for the Emerald multi-signature custody platform.
+> implementation for the EmVault multi-signature custody platform.
 
 `emvault-pkcs11` is the Hardware Security Module (HSM) backend for
 [`emvault-core`]. It implements both `emvault_core::Signer` (so the signer
@@ -88,6 +88,7 @@ src/
 ├── policy.rs           MinimalHsmPolicy + SigRateCounter, persisted as CKO_DATA objects
 ├── signer.rs           Pkcs11Signer impl emvault_core::Signer
 │                       + impl bdk_wallet::signer::TransactionSigner
+├── elements.rs         Elements/Liquid signing on Pkcs11Signer (feature = "elements")
 └── error.rs            Pkcs11Error + From<Pkcs11Error> for emvault_core::SignerError
 ```
 
