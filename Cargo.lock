@@ -551,7 +551,7 @@ dependencies = [
 
 [[package]]
 name = "emvault-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "emvault-dev-signer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "cryptoki",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "emvault-elements"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "emvault-pkcs11"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bdk_wallet",
  "bitcoin",
