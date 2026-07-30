@@ -3,6 +3,8 @@
 > PKCS#11-backed [`Signer`](https://github.com/gmikeska/emvault-core)
 > implementation for the EmVault multi-signature custody platform.
 
+See the [CHANGELOG](https://github.com/gmikeska/emvault-pkcs11/blob/master/CHANGELOG.md) for release notes.
+
 `emvault-pkcs11` is the Hardware Security Module (HSM) backend for
 [`emvault-core`]. It implements both `emvault_core::Signer` (so the signer
 participates in federation construction, descriptor building, and recovery)
