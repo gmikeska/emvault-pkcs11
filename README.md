@@ -43,7 +43,7 @@ ABI) is invisible to this crate.
 
 ## Design priorities
 
-This crate honors the priorities laid out in `.cursorrules`:
+This crate honors, in order, the following design priorities:
 
 1. **Developer ergonomics** — derive a signer, build a `Pkcs11Signer`, and
    compose it into a `Federation` in fewer than 20 lines (see example
