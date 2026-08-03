@@ -559,11 +559,10 @@ impl NetworkPatchedSigner {
     /// Wrap `inner` with an xpub network kind matching `network`.
     #[must_use]
     pub fn new(inner: Pkcs11Signer, network: bitcoin::Network) -> Self {
-        let mut xpub = *inner.xpub();
-        xpub.network = bitcoin::NetworkKind::from(network);
+        let patched_xpub = patch_xpub_network(*inner.xpub(), network);
         Self {
             inner,
-            patched_xpub: xpub,
+            patched_xpub,
         }
     }
 
@@ -572,6 +571,18 @@ impl NetworkPatchedSigner {
     pub fn inner(&self) -> &Pkcs11Signer {
         &self.inner
     }
+}
+
+/// Re-stamp an xpub's [`NetworkKind`](bitcoin::NetworkKind) to match `network`,
+/// leaving every other BIP-32 field (chain code, public key, depth, parent
+/// fingerprint, child number) untouched.
+///
+/// This is the sole transform [`NetworkPatchedSigner`] applies to the inner
+/// signer's xpub: only the two-valued `NetworkKind` (mainnet vs. everything
+/// else) is corrected, never the key material.
+fn patch_xpub_network(mut xpub: Xpub, network: bitcoin::Network) -> Xpub {
+    xpub.network = bitcoin::NetworkKind::from(network);
+    xpub
 }
 
 impl Signer for NetworkPatchedSigner {
@@ -603,5 +614,91 @@ impl Signer for NetworkPatchedSigner {
     }
     fn health_check(&self) -> Result<SignerHealth, SignerError> {
         self.inner.health_check()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    //! OFFLINE coverage for the [`NetworkPatchedSigner`] network-patch logic.
+    //!
+    //! `NetworkPatchedSigner::new` wraps a concrete [`Pkcs11Signer`], which
+    //! owns a live `cryptoki` session and therefore can only be built against
+    //! a real (or dev-shim) HSM — see the integration tests in `tests/`. The
+    //! only behavior the wrapper adds on top of pure delegation is the xpub
+    //! network re-stamp, extracted here into [`patch_xpub_network`] so it can
+    //! be asserted without an HSM.
+
+    use super::*;
+
+    /// A deterministic mainnet xpub built purely in software (no HSM). Uses a
+    /// fixed seed so the key material is stable across runs.
+    fn sample_xpub(network: bitcoin::Network) -> Xpub {
+        let secp = Secp256k1::new();
+        let seed = [7u8; 32];
+        let xpriv = bitcoin::bip32::Xpriv::new_master(network, &seed).expect("master xpriv");
+        Xpub::from_priv(&secp, &xpriv)
+    }
+
+    #[test]
+    fn patches_descriptor_key_network_to_test_kind() {
+        let mainnet = sample_xpub(bitcoin::Network::Bitcoin);
+        assert_eq!(mainnet.network, bitcoin::NetworkKind::Main);
+
+        for net in [
+            bitcoin::Network::Testnet,
+            bitcoin::Network::Regtest,
+            bitcoin::Network::Signet,
+        ] {
+            let patched = patch_xpub_network(mainnet, net);
+            assert_eq!(
+                patched.network,
+                bitcoin::NetworkKind::Test,
+                "network {net:?} should map to NetworkKind::Test",
+            );
+        }
+    }
+
+    #[test]
+    fn patches_descriptor_key_network_to_main_kind() {
+        let testnet = sample_xpub(bitcoin::Network::Testnet);
+        assert_eq!(testnet.network, bitcoin::NetworkKind::Test);
+
+        let patched = patch_xpub_network(testnet, bitcoin::Network::Bitcoin);
+        assert_eq!(patched.network, bitcoin::NetworkKind::Main);
+    }
+
+    #[test]
+    fn preserves_key_material_only_swaps_network() {
+        let original = sample_xpub(bitcoin::Network::Bitcoin);
+        let patched = patch_xpub_network(original, bitcoin::Network::Regtest);
+
+        // The network kind is the only field that changes...
+        assert_ne!(original.network, patched.network);
+
+        // ...every other BIP-32 field is byte-for-byte identical.
+        assert_eq!(original.public_key, patched.public_key);
+        assert_eq!(original.chain_code, patched.chain_code);
+        assert_eq!(original.parent_fingerprint, patched.parent_fingerprint);
+        assert_eq!(original.depth, patched.depth);
+        assert_eq!(original.child_number, patched.child_number);
+
+        // The BIP-32 fingerprint is derived from the public key alone, so it
+        // is stable across the network swap.
+        assert_eq!(original.fingerprint(), patched.fingerprint());
+    }
+
+    #[test]
+    fn regtest_and_testnet_patch_to_identical_xpub() {
+        // `NetworkKind` collapses every non-mainnet network to `Test`, so a
+        // regtest and a testnet patch of the same source xpub are equal.
+        let mainnet = sample_xpub(bitcoin::Network::Bitcoin);
+        let as_testnet = patch_xpub_network(mainnet, bitcoin::Network::Testnet);
+        let as_regtest = patch_xpub_network(mainnet, bitcoin::Network::Regtest);
+
+        assert_eq!(as_testnet, as_regtest);
     }
 }
