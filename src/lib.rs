@@ -93,6 +93,7 @@ pub mod ecdsa;
 #[cfg(feature = "elements")]
 pub mod elements;
 pub mod error;
+pub mod fleet;
 pub mod key_ops;
 pub mod policy;
 pub mod session;
@@ -106,6 +107,9 @@ pub use miniscript;
 pub use backend::{HsmBackend, HsmBackendError, MasterKeyHandle};
 pub use config::{Pkcs11Config, SlotIdentifier};
 pub use error::Pkcs11Error;
+pub use fleet::{
+    BackendFactory, BackendRegistrar, BackendRegistry, Fleet, FleetMember, KeyInit, MemberEnv,
+};
 pub use policy::MinimalHsmPolicy;
 pub use session::Pkcs11Session;
 pub use signer::{NetworkPatchedSigner, Pkcs11Signer};
