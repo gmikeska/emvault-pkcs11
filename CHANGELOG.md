@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Entries for 0.5.0 and earlier were reconstructed from git history.
 
+## [0.7.0] - 2026-08-03
+
+### Changed
+- Released in lockstep with the suite-wide v0.7.0 update; no functional changes.
+  Picks up the Elements nodeless backends and migration planning through the
+  `emvault-elements` dependency (behind the `elements` feature).
+
 ## [0.6.0] - 2026-07-29
 
 ### Changed
