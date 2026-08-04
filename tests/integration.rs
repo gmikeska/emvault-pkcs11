@@ -93,7 +93,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     let _ = key_ops::delete_key(session, label);
     // Also wipe any leftover policy/sigrate DATA objects from prior runs.
     for suffix in ["policy", "sigrate"] {
-        let l = format!("emvault/v1/{label}/{suffix}");
+        let l = format!("emvault.v1.{label}.{suffix}");
         if let Ok(handles) = session.session().find_objects(&[
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(l.as_bytes().to_vec()),

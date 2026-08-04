@@ -36,7 +36,7 @@ use crate::error::Pkcs11Error;
 use crate::session::Pkcs11Session;
 
 /// HSM-resident policy. Stored as a `CKO_DATA` object labelled
-/// `emvault/v1/{label}/policy`.
+/// `emvault.v1.{label}.policy`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MinimalHsmPolicy {
     /// Reject signing if any PSBT's total output value exceeds this amount.
@@ -111,7 +111,7 @@ impl MinimalHsmPolicy {
 }
 
 /// Sig-rate counter persisted alongside [`MinimalHsmPolicy`] as a `CKO_DATA`
-/// object labelled `emvault/v1/{label}/sigrate`.
+/// object labelled `emvault.v1.{label}.sigrate`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SigRateCounter {
     /// Unix-second timestamps of recent signing operations, oldest first.
@@ -142,13 +142,13 @@ impl SigRateCounter {
 // Persistence helpers
 // ---------------------------------------------------------------------------
 
-const POLICY_PREFIX: &str = "emvault/v1";
+const POLICY_PREFIX: &str = "emvault.v1";
 
 fn policy_label(label: &str) -> String {
-    format!("{POLICY_PREFIX}/{label}/policy")
+    format!("{POLICY_PREFIX}.{label}.policy")
 }
 fn sigrate_label(label: &str) -> String {
-    format!("{POLICY_PREFIX}/{label}/sigrate")
+    format!("{POLICY_PREFIX}.{label}.sigrate")
 }
 
 /// Read the policy from the token. Returns [`MinimalHsmPolicy::permissive`]

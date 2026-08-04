@@ -120,9 +120,22 @@ pub trait SegwitSigner: Send + Sync {
 ///
 /// Script-path multisig ⇒ the cosigner key is untweaked ⇒ no tweak argument.
 /// A backend exposes this via [`HsmBackend::taproot_signer`]; the transport may
-/// be anything (Securosys uses TSB REST, the dev shim signs in software).
+/// be anything (Securosys signs over TSB REST, the dev shim signs in software).
+///
+/// Unlike [`SegwitSigner`], the derivation context (`label` + `full_path`) is
+/// passed in, not just the session `key` handle: a transport whose signing side
+/// isn't PKCS#11 (e.g. Securosys TSB) can't use a session handle to name the
+/// key, so it reconstructs its own reference — the master key's on-token label
+/// (from `label`) plus the full BIP-32 path to the leaf.
 pub trait TaprootSigner: Send + Sync {
-    /// Schnorr-sign a 32-byte taproot sighash for `key`.
+    /// Schnorr-sign a 32-byte taproot sighash.
+    ///
+    /// - `key`: the federation/account key handle (for backends whose Schnorr
+    ///   path *is* PKCS#11).
+    /// - `label`: the signer's EmVault label — [`key_ops::priv_label`] of this
+    ///   is the master key's on-token name.
+    /// - `full_path`: the complete BIP-32 path from the master to the signing
+    ///   leaf (e.g. `m/86'/1'/0'/0/5`).
     ///
     /// # Errors
     /// [`HsmBackendError::Signing`] on failure.
@@ -130,6 +143,8 @@ pub trait TaprootSigner: Send + Sync {
         &self,
         session: &Session,
         key: ObjectHandle,
+        label: &str,
+        full_path: &DerivationPath,
         sighash: &[u8; 32],
     ) -> Result<bitcoin::secp256k1::schnorr::Signature, HsmBackendError>;
 }

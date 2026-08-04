@@ -24,9 +24,15 @@ use crate::error::Pkcs11Error;
 use crate::session::Pkcs11Session;
 
 /// EmVault label namespace prefix. Every object created by this crate
-/// goes under `emvault/v1/{label}/...` so we can find them later without
+/// goes under `emvault.v1.{label}.…` so we can find them later without
 /// risk of colliding with externally-managed token contents.
-pub const PREFIX: &str = "emvault/v1";
+///
+/// The separator is `.`, **not** `/`: Securosys TSB REST reserves `/` for the
+/// BIP-32 derivation path in a `signKeyName` (`<masterLabel>/<path>`), so a
+/// slash in the label itself would be misparsed as a derivation step. A
+/// slash-free label works across every backend (SoftHSM/PKCS#11 are
+/// separator-agnostic) and stays TSB-addressable.
+pub const PREFIX: &str = "emvault.v1";
 
 /// secp256k1 named-curve OID, DER-encoded:
 /// `OBJECT_IDENTIFIER (06 05 2B 81 04 00 0A) = 1.3.132.0.10`.
@@ -51,19 +57,19 @@ pub struct LoadedKey {
 /// private key. Mirrors the layout the dev shim and production HSMs
 /// expect.
 pub fn priv_label(label: &str) -> String {
-    format!("{PREFIX}/{label}/{PRIV_SUFFIX}")
+    format!("{PREFIX}.{label}.{PRIV_SUFFIX}")
 }
 
 /// Build the canonical EmVault label for the federation-derivation
 /// public key.
 pub fn pub_label(label: &str) -> String {
-    format!("{PREFIX}/{label}/{PUB_SUFFIX}")
+    format!("{PREFIX}.{label}.{PUB_SUFFIX}")
 }
 
 /// Look up a previously-derived key by label.
 ///
 /// Returns `None` if no key with `label` exists on the token. EmVault
-/// labels are namespaced as `emvault/v1/{label}/priv`.
+/// labels are namespaced as `emvault.v1.{label}.priv`.
 ///
 /// # Errors
 ///
@@ -98,7 +104,7 @@ pub fn find_key_by_label(
 /// Delete every EmVault object associated with `label` from the token.
 ///
 /// Removes the federation-derivation private and public key objects under
-/// `emvault/v1/{label}/{priv,pub}`. The dev shim destroys its companion
+/// `emvault.v1.{label}.{priv,pub}`. The dev shim destroys its companion
 /// BIP-32 metadata automatically when the key is destroyed (per the dev
 /// shim's `C_DestroyObject` interception); production HSMs carry their
 /// metadata as vendor attributes on the key itself.
@@ -115,7 +121,7 @@ pub fn delete_key(session: &Pkcs11Session, label: &str) -> Result<(), Pkcs11Erro
         (PRIV_SUFFIX, ObjectClass::PRIVATE_KEY),
         (PUB_SUFFIX, ObjectClass::PUBLIC_KEY),
     ] {
-        let l = format!("{PREFIX}/{label}/{suffix}");
+        let l = format!("{PREFIX}.{label}.{suffix}");
         let handles = session_handle
             .find_objects(&[
                 Attribute::Class(class),
@@ -216,7 +222,7 @@ mod tests {
 
     #[test]
     fn label_helpers_use_namespace() {
-        assert_eq!(priv_label("foo"), "emvault/v1/foo/priv");
-        assert_eq!(pub_label("foo"), "emvault/v1/foo/pub");
+        assert_eq!(priv_label("foo"), "emvault.v1.foo.priv");
+        assert_eq!(pub_label("foo"), "emvault.v1.foo.pub");
     }
 }

@@ -67,7 +67,7 @@ fn reset_label(session: &Pkcs11Session, label: &str) {
     use cryptoki::object::{Attribute, ObjectClass};
     let _ = key_ops::delete_key(session, label);
     for suffix in ["policy", "sigrate"] {
-        let l = format!("emvault/v1/{label}/{suffix}");
+        let l = format!("emvault.v1.{label}.{suffix}");
         if let Ok(handles) = session.session().find_objects(&[
             Attribute::Class(ObjectClass::DATA),
             Attribute::Label(l.as_bytes().to_vec()),
