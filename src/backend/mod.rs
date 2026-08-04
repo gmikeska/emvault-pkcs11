@@ -1,50 +1,43 @@
 //! Vendor-abstraction layer for PKCS#11 BIP-32 derivation.
 //!
-//! The [`HsmBackend`] trait abstracts over vendor-specific PKCS#11 mechanism
-//! IDs and attribute IDs for BIP-32 key derivation. It does **not** abstract
-//! over session management, signing, or object lookup — those flow through
-//! [`cryptoki`] identically for every backend.
+//! Two traits split the concern cleanly:
+//!
+//! - [`HsmBackend`] is the **signer-facing contract** — the exact set of
+//!   operations [`Pkcs11Signer`](crate::signer::Pkcs11Signer) invokes:
+//!   `derive_master_key`, `derive_path`, `read_xpub`, `master_fingerprint`,
+//!   plus a `backend_name`. Session management, signing, and object lookup are
+//!   **not** abstracted — they flow through [`cryptoki`] identically for every
+//!   backend.
+//! - [`AttributeDerivation`] is the **standard attribute-based recipe** — the
+//!   vendor mechanism IDs and attribute IDs for the common cryptoki derivation
+//!   convention. A backend that fits that convention implements *only* this
+//!   trait and gets a full `HsmBackend` for free through the blanket impl
+//!   below.
 //!
 //! Each implementation talks to a real PKCS#11 library:
 //!
 //! - In production, the library is the vendor's HSM driver. Vendor-specific
-//!   `HsmBackend` implementations live in their own downstream crates so
-//!   each deployment pulls in only the vendor SDK it actually uses.
+//!   backends live in their own downstream crates so each deployment pulls in
+//!   only the vendor SDK it actually uses.
 //! - In development and CI, the library is `libemvault_dev_hsm.so` — a shim
 //!   that wraps SoftHSM 2 and implements BIP-32 derivation in software. The
-//!   matching backend, `DevBackend`, lives in the separate
-//!   `emvault-dev-signer` crate so it never compiles into production builds.
+//!   matching backend, `DevBackend`, lives in the separate `emvault-dev-signer`
+//!   crate; it implements [`AttributeDerivation`].
 //!
-//! EmVault's compiled code is identical in every case. The only thing that
-//! varies is which mechanism IDs the backend instructs `cryptoki` to send.
+//! ## Which trait to implement
 //!
-//! ## What this trait is for
+//! Vendor SDKs assign their own PKCS#11 mechanism numbers to BIP-32 master and
+//! child derivation, and their own attribute numbers for the companion BIP-32
+//! metadata (chain code, depth, parent fingerprint, child index).
 //!
-//! Vendor SDKs assign their own PKCS#11 mechanism numbers to BIP-32 master
-//! and child key derivation, and their own attribute numbers for the
-//! companion BIP-32 metadata (chain code, depth, parent fingerprint, child
-//! index). The trait carries those constants plus a small amount of glue
-//! around `Session::derive_key` and `Session::get_attributes`. Everything
-//! else — session open, login, key lookup, ECDSA signing, session close —
-//! is straight cryptoki.
-//!
-//! ## Default method bodies
-//!
-//! `derive_master_key`, `derive_child_key`, `read_xpub`, and
-//! `master_fingerprint` are provided as **default trait method
-//! implementations** that use the vendor accessors
-//! ([`HsmBackend::master_derive_mechanism`], etc.) plus an assumed common
-//! mechanism-parameter convention:
-//!
-//! - **Master derivation**: the seed is passed as the entire `pParameter`
-//!   blob (no length prefix, no header). The new key inherits the caller's
-//!   template attributes plus `CKK_EC` over secp256k1.
-//! - **Child derivation**: the parent key handle is the base, and the
-//!   mechanism parameter is a 4-byte little-endian `u32` carrying the child
-//!   index in BIP-32 form (high bit set means hardened).
-//!
-//! Vendors whose mechanism parameter struct layout diverges from this
-//! convention should override the relevant methods.
+//! - If your HSM follows the common convention — `C_DeriveKey` with a vendor
+//!   mechanism per level (child param = 4-byte LE `u32`, hardened = high bit),
+//!   metadata exposed as vendor attributes — implement [`AttributeDerivation`]
+//!   and you're done.
+//! - If it diverges (e.g. Securosys derives a whole path in one
+//!   `C_DeriveKeyPair` and doesn't expose the positional metadata as
+//!   attributes), implement [`HsmBackend`] **directly** and skip
+//!   `AttributeDerivation` entirely.
 
 use bitcoin::bip32::{ChainCode, ChildNumber, DerivationPath, Fingerprint, Xpub};
 use bitcoin::hashes::Hash;
@@ -97,22 +90,91 @@ pub enum HsmBackendError {
 }
 
 // ---------------------------------------------------------------------------
-// Trait
+// Signer-facing contract
 // ---------------------------------------------------------------------------
 
-/// Maps vendor-specific PKCS#11 mechanism IDs and attribute IDs for BIP-32
-/// key derivation.
+/// The signer-facing HSM contract: everything
+/// [`Pkcs11Signer`](crate::signer::Pkcs11Signer) needs to create, reload, and
+/// sign with an HSM-held BIP-32 key.
 ///
-/// Each implementation knows which mechanism to pass to `C_DeriveKey` and
-/// which vendor attributes to read from `C_GetAttributeValue` for a specific
-/// HSM backend. The actual PKCS#11 calls go through [`cryptoki`] — the
-/// trait just supplies the constants and shapes the parameter buffers.
+/// Most backends get this **for free** by implementing [`AttributeDerivation`]
+/// (the blanket impl below supplies these methods from the vendor accessors).
+/// Implement `HsmBackend` **directly** only when the HSM's derivation doesn't
+/// fit the attribute-based convention.
 ///
 /// Implementations must be `Send + Sync` for use in async contexts.
 pub trait HsmBackend: Send + Sync + std::fmt::Debug {
-    // ------------------------------------------------------------------
-    // Vendor constants — every implementation must supply these.
-    // ------------------------------------------------------------------
+    /// Backend identity for logging and diagnostics (e.g. `"dev"`, or a vendor
+    /// identifier supplied by a downstream crate).
+    fn backend_name(&self) -> &'static str;
+
+    /// Derive a BIP-32 master key from `seed` inside the HSM.
+    ///
+    /// The seed must be exactly 64 bytes (the standard BIP-39 seed length), or
+    /// empty (`&[]`) for backends that resolve the seed themselves (e.g. the
+    /// dev shim's slot-keyed preloaded BIP-39 mnemonics).
+    ///
+    /// # Errors
+    /// Returns [`HsmBackendError::Derivation`] for a malformed seed, or
+    /// [`HsmBackendError::Pkcs11`] if the token rejects the request.
+    fn derive_master_key(
+        &self,
+        session: &Session,
+        seed: &[u8],
+        label: &str,
+    ) -> Result<MasterKeyHandle, HsmBackendError>;
+
+    /// Derive a key at a full BIP-32 path from a master key.
+    ///
+    /// # Errors
+    /// Returns [`HsmBackendError::Pkcs11`] if any derivation step rejects.
+    fn derive_path(
+        &self,
+        session: &Session,
+        master_handle: ObjectHandle,
+        path: &DerivationPath,
+    ) -> Result<ObjectHandle, HsmBackendError>;
+
+    /// Read the extended public key from `key_handle`.
+    ///
+    /// # Errors
+    /// Returns [`HsmBackendError::MetadataError`] if metadata is missing or
+    /// malformed, or [`HsmBackendError::Pkcs11`] for token failures.
+    fn read_xpub(
+        &self,
+        session: &Session,
+        key_handle: ObjectHandle,
+    ) -> Result<Xpub, HsmBackendError>;
+
+    /// Read the master fingerprint (HASH160 of the master pubkey, first 4
+    /// bytes) from a key handle.
+    ///
+    /// # Errors
+    /// Returns [`HsmBackendError::MetadataError`] if the EC point is missing or
+    /// malformed, or [`HsmBackendError::Pkcs11`] for token failures.
+    fn master_fingerprint(
+        &self,
+        session: &Session,
+        key_handle: ObjectHandle,
+    ) -> Result<Fingerprint, HsmBackendError>;
+}
+
+// ---------------------------------------------------------------------------
+// Standard attribute-based recipe
+// ---------------------------------------------------------------------------
+
+/// Vendor mechanism/attribute IDs for the **standard attribute-based** BIP-32
+/// derivation path.
+///
+/// A backend that derives through the common cryptoki convention — `C_DeriveKey`
+/// with a vendor mechanism per level and vendor attributes read back for the
+/// BIP-32 metadata — implements this trait, and gets a full [`HsmBackend`] for
+/// free via the blanket impl below.
+///
+/// Implementations must be `Send + Sync` for use in async contexts.
+pub trait AttributeDerivation: Send + Sync + std::fmt::Debug {
+    /// Backend identity for logging and diagnostics (e.g. `"dev"`).
+    fn backend_name(&self) -> &'static str;
 
     /// PKCS#11 mechanism type for master-key derivation.
     fn master_derive_mechanism(&self) -> MechanismType;
@@ -132,42 +194,44 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
     /// Vendor-defined attribute type carrying the child index.
     fn child_index_attribute(&self) -> AttributeType;
 
-    /// Backend identity for logging and diagnostics (e.g. `"dev"`, or a
-    /// vendor identifier supplied by a downstream crate).
-    fn backend_name(&self) -> &'static str;
-
-    // ------------------------------------------------------------------
-    // Default operations — vendors override only when the mechanism
-    // parameter struct layout diverges from the common convention.
-    // ------------------------------------------------------------------
-
-    /// Derive a BIP-32 master key from `seed` inside the HSM.
+    /// Derive a child key at a single BIP-32 path segment.
     ///
-    /// Calls `C_DeriveKey` via [`Session::derive_key`] with the vendor's
-    /// master-derivation mechanism. The seed must be exactly 64 bytes
-    /// (the standard BIP-39 seed length); shorter or longer seeds should
-    /// be normalized to 64 bytes by the caller (e.g. via PBKDF2-HMAC-SHA512
-    /// per BIP-39).
-    ///
-    /// The seed is passed both as the mechanism's `pParameter` (for vendors
-    /// that consume it there, including the dev shim) and as the
-    /// `CKA_VALUE` of a session-only `CKO_SECRET_KEY` base key (for
-    /// vendors that consume it through the base-key handle). The temporary
-    /// base key is destroyed after derivation.
-    ///
-    /// As a special case, an empty `seed` (`&[]`) is accepted: the
-    /// mechanism param and base-key value are both filled with 64 zero
-    /// bytes, signalling "no real seed material here." Backends that
-    /// can resolve the seed themselves (e.g. the dev shim's slot-keyed
-    /// preloaded BIP-39 mnemonics) detect the all-zero seed and fall
-    /// through to their internal lookup. Production backends with no
-    /// such fallback will reject the derivation.
+    /// Default convention: the mechanism parameter is a 4-byte little-endian
+    /// `u32` carrying the child index in BIP-32 form (high bit set means
+    /// hardened). Override only if the child-derivation parameter differs.
     ///
     /// # Errors
-    ///
-    /// Returns [`HsmBackendError::Derivation`] if `seed.len()` is not
-    /// `0` or `64`, [`HsmBackendError::Pkcs11`] if the underlying token
-    /// rejects the request.
+    /// Returns [`HsmBackendError::Pkcs11`] if the token rejects the request.
+    fn derive_child_key(
+        &self,
+        session: &Session,
+        parent_handle: ObjectHandle,
+        child: ChildNumber,
+    ) -> Result<ObjectHandle, HsmBackendError> {
+        let index_word: u32 = match child {
+            ChildNumber::Normal { index } => index,
+            ChildNumber::Hardened { index } => index | 0x8000_0000,
+        };
+        let index_bytes: [u8; 4] = index_word.to_le_bytes();
+        let mech_type = self.child_derive_mechanism();
+        let vendor_mech = VendorDefinedMechanism::new(mech_type, Some(&index_bytes));
+        let mech = Mechanism::VendorDefined(vendor_mech);
+
+        let template = child_key_template();
+
+        Ok(session.derive_key(&mech, parent_handle, &template)?)
+    }
+}
+
+/// Blanket impl: every [`AttributeDerivation`] backend is a full [`HsmBackend`]
+/// via the standard attribute-based cryptoki derivation. Backends that need a
+/// different derivation shape implement [`HsmBackend`] directly instead (and do
+/// not implement `AttributeDerivation`).
+impl<T: AttributeDerivation> HsmBackend for T {
+    fn backend_name(&self) -> &'static str {
+        <T as AttributeDerivation>::backend_name(self)
+    }
+
     fn derive_master_key(
         &self,
         session: &Session,
@@ -218,46 +282,6 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
         })
     }
 
-    /// Derive a child key at a single BIP-32 path segment.
-    ///
-    /// Default convention: the mechanism parameter is a 4-byte little-endian
-    /// `u32` carrying the child index in BIP-32 form (high bit set means
-    /// hardened).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HsmBackendError::Pkcs11`] if the underlying token rejects
-    /// the derivation request.
-    fn derive_child_key(
-        &self,
-        session: &Session,
-        parent_handle: ObjectHandle,
-        child: ChildNumber,
-    ) -> Result<ObjectHandle, HsmBackendError> {
-        let index_word: u32 = match child {
-            ChildNumber::Normal { index } => index,
-            ChildNumber::Hardened { index } => index | 0x8000_0000,
-        };
-        let index_bytes: [u8; 4] = index_word.to_le_bytes();
-        let mech_type = self.child_derive_mechanism();
-        let vendor_mech = VendorDefinedMechanism::new(mech_type, Some(&index_bytes));
-        let mech = Mechanism::VendorDefined(vendor_mech);
-
-        let template = child_key_template();
-
-        Ok(session.derive_key(&mech, parent_handle, &template)?)
-    }
-
-    /// Derive a key at a full BIP-32 path from a master key by iterating
-    /// over the path segments.
-    ///
-    /// Vendors that natively support full-path derivation in a single
-    /// `C_DeriveKey` call may override this.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HsmBackendError::Pkcs11`] if any intermediate child
-    /// derivation rejects.
     fn derive_path(
         &self,
         session: &Session,
@@ -271,17 +295,6 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
         Ok(current)
     }
 
-    /// Read the extended public key from `key_handle`.
-    ///
-    /// Reads `CKA_EC_POINT` plus the vendor-specific BIP-32 attributes
-    /// (chain code, depth, parent fingerprint, child index) and assembles
-    /// a [`bitcoin::bip32::Xpub`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HsmBackendError::MetadataError`] if any required attribute
-    /// is missing or malformed, or [`HsmBackendError::Pkcs11`] for token
-    /// failures.
     fn read_xpub(
         &self,
         session: &Session,
@@ -378,17 +391,6 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
         })
     }
 
-    /// Read the master fingerprint from a key handle.
-    ///
-    /// Default implementation reads `CKA_EC_POINT`, parses the secp256k1
-    /// public key, and returns HASH160 of its compressed serialization,
-    /// truncated to 4 bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HsmBackendError::Pkcs11`] for token failures or
-    /// [`HsmBackendError::MetadataError`] if the EC point is missing or
-    /// malformed.
     fn master_fingerprint(
         &self,
         session: &Session,
@@ -418,7 +420,7 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
 
 /// Standard `CKO_PRIVATE_KEY` template for a freshly-derived BIP-32 master
 /// key. Vendors that need extra attributes can build their own template and
-/// override [`HsmBackend::derive_master_key`].
+/// implement [`HsmBackend`] directly.
 fn master_key_template(label: &str) -> Vec<Attribute> {
     let priv_label = format!("{label}/priv");
     vec![
@@ -480,13 +482,16 @@ fn parse_ec_point(input: &[u8]) -> Result<PublicKey, HsmBackendError> {
 mod tests {
     use super::*;
 
-    /// Tiny stub backend used to verify the trait's default-method
-    /// implementations compile cleanly and can be used through a trait
-    /// object. The mechanism numbers are arbitrary but `>= CKM_VENDOR_DEFINED`.
+    /// Tiny stub backend used to verify the attribute-based recipe compiles
+    /// cleanly and yields a full [`HsmBackend`] through the blanket impl. The
+    /// mechanism numbers are arbitrary but `>= CKM_VENDOR_DEFINED`.
     #[derive(Debug)]
     struct StubBackend;
 
-    impl HsmBackend for StubBackend {
+    impl AttributeDerivation for StubBackend {
+        fn backend_name(&self) -> &'static str {
+            "stub"
+        }
         fn master_derive_mechanism(&self) -> MechanismType {
             MechanismType::new_vendor_defined(0x8000_0001).unwrap()
         }
@@ -505,9 +510,6 @@ mod tests {
         fn child_index_attribute(&self) -> AttributeType {
             AttributeType::VendorDefined(0x8000_0104)
         }
-        fn backend_name(&self) -> &'static str {
-            "stub"
-        }
     }
 
     #[test]
@@ -519,10 +521,14 @@ mod tests {
     #[test]
     fn stub_constants_round_trip() {
         let s = StubBackend;
-        assert_eq!(s.backend_name(), "stub");
+        // `backend_name` reaches both traits; the blanket forwards it.
+        assert_eq!(HsmBackend::backend_name(&s), "stub");
+        assert_eq!(AttributeDerivation::backend_name(&s), "stub");
         // Ensure the vendor-defined accessors don't panic.
         let _ = s.master_derive_mechanism();
         let _ = s.child_derive_mechanism();
         let _ = s.chain_code_attribute();
+        // The blanket makes the stub usable as a full HsmBackend trait object.
+        let _boxed: Box<dyn HsmBackend> = Box::new(StubBackend);
     }
 }

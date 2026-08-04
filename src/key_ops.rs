@@ -4,7 +4,7 @@
 //! this module no longer owns key generation or chain-code persistence —
 //! the HSM itself (real hardware, or `libemvault_dev_hsm.so` in dev) is the
 //! source of truth for derived keys and their BIP-32 metadata. The vendor
-//! BIP-32 attributes ([`HsmBackend::chain_code_attribute`] and friends)
+//! BIP-32 attributes ([`AttributeDerivation::chain_code_attribute`] and friends)
 //! carry the chain code; there is no longer a separate `CKO_DATA` material
 //! object.
 //!
@@ -16,7 +16,7 @@
 //!   its companion BIP-32 metadata automatically; production HSMs handle
 //!   their own metadata via vendor attributes attached to the key object.
 //!
-//! [`HsmBackend::chain_code_attribute`]: crate::backend::HsmBackend::chain_code_attribute
+//! [`AttributeDerivation::chain_code_attribute`]: crate::backend::AttributeDerivation::chain_code_attribute
 
 use cryptoki::object::{Attribute, ObjectClass, ObjectHandle};
 
