@@ -87,6 +87,72 @@ pub enum HsmBackendError {
     /// missing or malformed when read back from the HSM.
     #[error("BIP-32 metadata error: {0}")]
     MetadataError(String),
+
+    /// A signing operation failed (bad signature encoding, transport error,
+    /// unsupported algorithm, etc.).
+    #[error("signing error: {0}")]
+    Signing(String),
+}
+
+// ---------------------------------------------------------------------------
+// Signing capability traits
+// ---------------------------------------------------------------------------
+
+/// SegWit v0 signing: ECDSA over a P2WSH sighash (low-S / BIP-146).
+///
+/// A backend exposes this via [`HsmBackend::segwit_signer`]. The `session` is
+/// the open PKCS#11 session; a backend whose SegWit path is *not* PKCS#11 uses
+/// it only to resolve its own key reference from `key`.
+pub trait SegwitSigner: Send + Sync {
+    /// Sign a 32-byte sighash for `key`, returning a low-S ECDSA signature.
+    ///
+    /// # Errors
+    /// [`HsmBackendError::Signing`] / [`HsmBackendError::Pkcs11`] on failure.
+    fn sign_ecdsa(
+        &self,
+        session: &Session,
+        key: ObjectHandle,
+        sighash: &[u8; 32],
+    ) -> Result<bitcoin::secp256k1::ecdsa::Signature, HsmBackendError>;
+}
+
+/// SegWit v1 (Taproot) signing: BIP-340 Schnorr over a taproot sighash.
+///
+/// Script-path multisig ⇒ the cosigner key is untweaked ⇒ no tweak argument.
+/// A backend exposes this via [`HsmBackend::taproot_signer`]; the transport may
+/// be anything (Securosys uses TSB REST, the dev shim signs in software).
+pub trait TaprootSigner: Send + Sync {
+    /// Schnorr-sign a 32-byte taproot sighash for `key`.
+    ///
+    /// # Errors
+    /// [`HsmBackendError::Signing`] on failure.
+    fn sign_schnorr(
+        &self,
+        session: &Session,
+        key: ObjectHandle,
+        sighash: &[u8; 32],
+    ) -> Result<bitcoin::secp256k1::schnorr::Signature, HsmBackendError>;
+}
+
+/// The stock PKCS#11 `CKM_ECDSA` SegWit signer. Every PKCS#11-token backend
+/// (dev shim, Securosys, …) signs SegWit v0 identically through this, so
+/// [`HsmBackend::segwit_signer`] returns a reference to the shared [`ECDSA_SIGNER`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Pkcs11EcdsaSigner;
+
+/// Shared instance of the stock PKCS#11 ECDSA signer.
+pub const ECDSA_SIGNER: Pkcs11EcdsaSigner = Pkcs11EcdsaSigner;
+
+impl SegwitSigner for Pkcs11EcdsaSigner {
+    fn sign_ecdsa(
+        &self,
+        session: &Session,
+        key: ObjectHandle,
+        sighash: &[u8; 32],
+    ) -> Result<bitcoin::secp256k1::ecdsa::Signature, HsmBackendError> {
+        crate::ecdsa::sign_with_low_s(session, key, sighash)
+            .map_err(|e| HsmBackendError::Signing(e.to_string()))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +223,18 @@ pub trait HsmBackend: Send + Sync + std::fmt::Debug {
         session: &Session,
         key_handle: ObjectHandle,
     ) -> Result<Fingerprint, HsmBackendError>;
+
+    /// This backend's SegWit v0 (ECDSA) signer, or `None` if it can't sign
+    /// SegWit. PKCS#11-token backends return [`ECDSA_SIGNER`].
+    fn segwit_signer(&self) -> Option<&dyn SegwitSigner> {
+        None
+    }
+
+    /// This backend's Taproot (Schnorr) signer, or `None` if it can't sign
+    /// Taproot. `capabilities.taproot` is derived from this.
+    fn taproot_signer(&self) -> Option<&dyn TaprootSigner> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +298,14 @@ pub trait AttributeDerivation: Send + Sync + std::fmt::Debug {
         let template = child_key_template();
 
         Ok(session.derive_key(&mech, parent_handle, &template)?)
+    }
+
+    /// This backend's Taproot (Schnorr) signer, if it supports Taproot. Defaults
+    /// to none; a shim/HSM that adds Schnorr (e.g. the dev shim, Phase 3)
+    /// overrides this. SegWit ECDSA is supplied automatically by the blanket
+    /// [`HsmBackend`] impl, so it is not part of this trait.
+    fn taproot_signer(&self) -> Option<&dyn TaprootSigner> {
+        None
     }
 }
 
@@ -411,6 +497,16 @@ impl<T: AttributeDerivation> HsmBackend for T {
         let mut fp = [0u8; 4];
         fp.copy_from_slice(&bytes[..4]);
         Ok(Fingerprint::from(fp))
+    }
+
+    fn segwit_signer(&self) -> Option<&dyn SegwitSigner> {
+        // Every attribute-based (PKCS#11-token) backend signs SegWit v0 with
+        // stock `CKM_ECDSA`.
+        Some(&ECDSA_SIGNER)
+    }
+
+    fn taproot_signer(&self) -> Option<&dyn TaprootSigner> {
+        <T as AttributeDerivation>::taproot_signer(self)
     }
 }
 

@@ -104,7 +104,10 @@ pub use cryptoki;
 pub use emvault_core;
 pub use miniscript;
 
-pub use backend::{AttributeDerivation, HsmBackend, HsmBackendError, MasterKeyHandle};
+pub use backend::{
+    AttributeDerivation, ECDSA_SIGNER, HsmBackend, HsmBackendError, MasterKeyHandle,
+    Pkcs11EcdsaSigner, SegwitSigner, TaprootSigner,
+};
 pub use config::{Pkcs11Config, SlotIdentifier};
 pub use error::Pkcs11Error;
 pub use fleet::{

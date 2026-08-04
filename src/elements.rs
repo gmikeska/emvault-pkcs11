@@ -112,17 +112,23 @@ impl ElementsSigner for Pkcs11Signer {
                     .map_err(|e| PsetError::SignerBackend(e.to_string()))?
             };
 
-            let sign_result = crate::ecdsa::sign_with_low_s(
-                inner.session.session(),
-                signing_handle,
-                &sighash_msg,
-            );
+            // Elements/Liquid signing is ECDSA — same SegWit path as Bitcoin;
+            // route it through the backend's SegWit signer.
+            let sign_result: Result<_, PsetError> = match inner.backend.segwit_signer() {
+                Some(s) => s
+                    .sign_ecdsa(inner.session.session(), signing_handle, &sighash_msg)
+                    .map_err(|e| PsetError::SignerBackend(e.to_string())),
+                None => Err(PsetError::SignerBackend(format!(
+                    "backend `{}` does not support SegWit (ECDSA) signing",
+                    inner.backend.backend_name()
+                ))),
+            };
 
             if signing_handle != federation_handle {
                 let _ = inner.session.session().destroy_object(signing_handle);
             }
 
-            let mut sig = sign_result.map_err(|e| PsetError::SignerBackend(e.to_string()))?;
+            let mut sig = sign_result?;
             sig.normalize_s();
 
             // Encode as DER + sighash flag byte (the same wire format

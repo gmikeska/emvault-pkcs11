@@ -217,7 +217,9 @@ impl Pkcs11Signer {
             // actual blinding software-side. We advertise the capability
             // whenever the `elements` feature is compiled in.
             blind_signing: cfg!(feature = "elements"),
-            taproot: true,
+            // Taproot is advertised iff this backend actually provides a
+            // Schnorr signer (Securosys via TSB, dev shim via software).
+            taproot: backend.taproot_signer().is_some(),
             musig2: false,
             transports: vec![TransportType::Pkcs11],
         };
@@ -500,11 +502,17 @@ impl TransactionSigner for Pkcs11Signer {
                     .map_err(|e| BdkSignerError::External(e.to_string()))?
             };
 
-            let sign_result = crate::ecdsa::sign_with_low_s(
-                inner.session.session(),
-                signing_handle,
-                &sighash_msg,
-            );
+            // Route SegWit v0 signing through the backend's ECDSA signer — the
+            // backend owns the mechanism (PKCS#11 `CKM_ECDSA` for token backends).
+            let sign_result: Result<_, BdkSignerError> = match inner.backend.segwit_signer() {
+                Some(s) => s
+                    .sign_ecdsa(inner.session.session(), signing_handle, &sighash_msg)
+                    .map_err(|e| BdkSignerError::External(e.to_string())),
+                None => Err(BdkSignerError::External(format!(
+                    "backend `{}` does not support SegWit (ECDSA) signing",
+                    inner.backend.backend_name()
+                ))),
+            };
 
             // Best-effort cleanup: destroy session-only child keys after
             // signing. Errors are non-fatal — the token will reap them on
@@ -513,7 +521,7 @@ impl TransactionSigner for Pkcs11Signer {
                 let _ = inner.session.session().destroy_object(signing_handle);
             }
 
-            let mut sig = sign_result.map_err(|e| BdkSignerError::External(e.to_string()))?;
+            let mut sig = sign_result?;
             sig.normalize_s();
 
             let bitcoin_sig = bitcoin::ecdsa::Signature {
