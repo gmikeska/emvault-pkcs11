@@ -62,7 +62,6 @@ fn make_config(slot_label: &str, pin: &str, path: &DerivationPath) -> Pkcs11Conf
         SlotIdentifier::label(slot_label),
         pin.to_string(),
         path.clone(),
-        Box::new(DevBackend),
     )
 }
 

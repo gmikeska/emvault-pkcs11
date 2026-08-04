@@ -33,7 +33,6 @@ fn dev_session(idx: u8, path: &DerivationPath) -> Pkcs11Session {
         SlotIdentifier::label(&label),
         pin.clone(),
         path.clone(),
-        Box::new(DevBackend),
     );
     Pkcs11Session::open(&cfg, &SlotIdentifier::label(&label), &pin).expect("open dev session")
 }

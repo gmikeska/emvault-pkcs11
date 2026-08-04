@@ -13,24 +13,27 @@
 //!   accidentally end up in logs.
 //! - **`derivation_path`** — the federation BIP-32 path the signer
 //!   participates at (e.g. `m/48'/1'/0'/2'`).
-//! - **`backend`** — a [`Box<dyn HsmBackend>`](crate::backend::HsmBackend)
-//!   carrying the vendor-specific mechanism IDs and attribute IDs for
-//!   BIP-32 derivation. The standard cryptoki path stays vendor-agnostic;
-//!   only the derivation calls are routed through the backend.
+//!
+//! The HSM [`backend`](crate::backend::HsmBackend) is **not** part of the config
+//! — it is supplied directly to
+//! [`Pkcs11Signer::derive_from_seed`](crate::signer::Pkcs11Signer::derive_from_seed)
+//! / [`load`](crate::signer::Pkcs11Signer::load) and owned by the signer, so it
+//! is threaded in exactly one place.
 
 use std::path::PathBuf;
 
 use bitcoin::bip32::DerivationPath;
 use secrecy::SecretString;
 
-use crate::backend::HsmBackend;
 use crate::error::Pkcs11Error;
 
 /// Configuration for opening a PKCS#11 session.
 ///
-/// Constructed via [`Self::builder`] or directly. The struct is `!Clone`
-/// because [`Box<dyn HsmBackend>`] can't be cloned through the trait
-/// object — instantiate a fresh config (cheap) instead of cloning.
+/// Constructed via [`Self::new`]. Carries only session-open inputs (library,
+/// slot, PIN) plus the signer's derivation path; the vendor
+/// [`HsmBackend`](crate::backend::HsmBackend) is passed separately to the
+/// signer constructors.
+#[derive(Clone)]
 pub struct Pkcs11Config {
     /// Filesystem path to the PKCS#11 shared library.
     pub library_path: PathBuf,
@@ -40,9 +43,6 @@ pub struct Pkcs11Config {
     pub pin: SecretString,
     /// BIP-32 derivation path for this signer's federation key.
     pub derivation_path: DerivationPath,
-    /// Vendor backend carrying mechanism/attribute IDs for BIP-32
-    /// derivation through this PKCS#11 library.
-    pub backend: Box<dyn HsmBackend>,
 }
 
 impl std::fmt::Debug for Pkcs11Config {
@@ -51,7 +51,6 @@ impl std::fmt::Debug for Pkcs11Config {
             .field("library_path", &self.library_path)
             .field("slot", &self.slot)
             .field("derivation_path", &self.derivation_path)
-            .field("backend", &self.backend.backend_name())
             .finish_non_exhaustive()
     }
 }
@@ -63,14 +62,12 @@ impl Pkcs11Config {
         slot: SlotIdentifier,
         pin: impl Into<SecretString>,
         derivation_path: DerivationPath,
-        backend: Box<dyn HsmBackend>,
     ) -> Self {
         Self {
             library_path: library_path.into(),
             slot,
             pin: pin.into(),
             derivation_path,
-            backend,
         }
     }
 

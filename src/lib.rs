@@ -49,19 +49,19 @@
 //!     SlotIdentifier::label("dev-app-1"),
 //!     "user-pin".to_string(),
 //!     DerivationPath::from_str("m/48'/1'/0'/2'")?,
-//!     Box::new(DevBackend),
 //! );
 //!
 //! let session = Pkcs11Session::open(&cfg, &cfg.slot, /* pin */ "user-pin")?;
 //! // Empty seed: the dev shim looks up the slot's preconfigured BIP-39
 //! // mnemonic and derives the seed itself. Production backends should
-//! // pass the 64-byte BIP-32 seed material directly.
+//! // pass the 64-byte BIP-32 seed material directly. The HSM backend is
+//! // handed to the signer here — it is not part of `Pkcs11Config`.
 //! let signer = Pkcs11Signer::derive_from_seed(
 //!     session,
 //!     "fed-1",
 //!     &cfg.derivation_path,
 //!     bitcoin::Network::Regtest,
-//!     cfg.backend,
+//!     Box::new(DevBackend),
 //!     &[],
 //! )?;
 //! println!("descriptor key: {}", signer.descriptor_key());

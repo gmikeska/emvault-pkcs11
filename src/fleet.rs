@@ -247,7 +247,6 @@ fn build_member(m: FleetMember) -> Result<Pkcs11Signer, Pkcs11Error> {
         m.slot.clone(),
         pin.clone(),
         m.derivation_path.clone(),
-        (m.make_backend)(),
     );
     let session = Pkcs11Session::open(&cfg, &m.slot, &pin)?;
     match m.key_init {
