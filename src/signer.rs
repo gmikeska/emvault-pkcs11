@@ -38,7 +38,8 @@ use bitcoin::Psbt;
 use bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{All, Secp256k1};
-use bitcoin::sighash::{EcdsaSighashType, SighashCache};
+use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
+use cryptoki::object::ObjectHandle;
 use emvault_core::{
     Signer, SignerCapabilities, SignerId, SignerType, TransportType, error::SignerError,
     network::NetworkType, signer::SignerHealth,
@@ -406,10 +407,140 @@ impl SignerCommon for Pkcs11Signer {
     }
 }
 
+impl Pkcs11Signer {
+    /// Sign a Taproot **script-path** input: produce a BIP-340 Schnorr
+    /// signature for each tap leaf this signer participates in and stash it in
+    /// `tap_script_sigs`. Returns whether any signature was added.
+    ///
+    /// Only script-path spends of `tr(NUMS, multi_a(...))` are supported — the
+    /// internal key is the provably-unspendable BIP-341 NUMS point, so there is
+    /// no key-path signature to make. The caller holds the session guard.
+    fn sign_taproot_input(
+        &self,
+        inner: &Pkcs11SignerInner,
+        psbt: &mut Psbt,
+        input_idx: usize,
+        federation_handle: ObjectHandle,
+        federation_path_len: usize,
+    ) -> Result<bool, BdkSignerError> {
+        // Match this signer's key against the input's taproot key origins,
+        // capturing the x-only key, the leaves it participates in, and the
+        // full BIP-32 path from the master fingerprint.
+        let ours = psbt.inputs[input_idx]
+            .tap_key_origins
+            .iter()
+            .find(|(_, (_, (fp, _)))| *fp == self.fingerprint)
+            .map(|(xonly, (leaf_hashes, (_, path)))| (*xonly, leaf_hashes.clone(), path.clone()));
+        let Some((our_xonly, leaf_hashes, full_path)) = ours else {
+            return Ok(false);
+        };
+        if leaf_hashes.is_empty() {
+            // Key-path-only origin — nothing to sign on the script path (our
+            // NUMS internal key never carries a real key-path origin anyway).
+            return Ok(false);
+        }
+
+        let taproot_signer = inner.backend.taproot_signer().ok_or_else(|| {
+            BdkSignerError::External(format!(
+                "backend `{}` does not support Taproot (Schnorr) signing",
+                inner.backend.backend_name()
+            ))
+        })?;
+
+        // Strip the federation prefix; derive a session-scoped leaf handle when
+        // the path extends past it. Fixed mode (the HSM federation model)
+        // leaves the suffix empty, so the federation handle signs directly.
+        let segments: Vec<bitcoin::bip32::ChildNumber> = full_path.as_ref().to_vec();
+        if segments.len() < federation_path_len {
+            return Err(BdkSignerError::External(format!(
+                "input {input_idx} taproot BIP-32 path {full_path} is shorter than this signer's \
+                 federation path {}",
+                self.derivation_path
+            )));
+        }
+        let relative_segments = &segments[federation_path_len..];
+        let relative_path: DerivationPath = relative_segments.to_vec().into();
+        let signing_handle = if relative_segments.is_empty() {
+            federation_handle
+        } else {
+            inner
+                .backend
+                .derive_path(inner.session.session(), federation_handle, &relative_path)
+                .map_err(|e| BdkSignerError::External(e.to_string()))?
+        };
+
+        // The taproot sighash commits to every prevout, so gather them all.
+        let prevouts: Vec<bitcoin::TxOut> = psbt
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(i, inp)| {
+                inp.witness_utxo.clone().ok_or_else(|| {
+                    BdkSignerError::External(format!(
+                        "input {i} missing witness_utxo (taproot sighash needs all prevouts)"
+                    ))
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let sighash_type = psbt.inputs[input_idx]
+            .sighash_type
+            .map(bitcoin::psbt::PsbtSighashType::taproot_hash_ty)
+            .transpose()
+            .map_err(|e| BdkSignerError::External(format!("invalid taproot sighash type: {e}")))?
+            .unwrap_or(TapSighashType::Default);
+
+        // `SighashCache` borrows the unsigned tx immutably; clone it so the
+        // borrow doesn't collide with mutating `psbt.inputs` to stash sigs.
+        let unsigned_tx = psbt.unsigned_tx.clone();
+        let all_prevouts = Prevouts::All(&prevouts);
+
+        let mut signed = false;
+        for leaf_hash in &leaf_hashes {
+            let sighash = SighashCache::new(&unsigned_tx)
+                .taproot_script_spend_signature_hash(
+                    input_idx,
+                    &all_prevouts,
+                    *leaf_hash,
+                    sighash_type,
+                )
+                .map_err(|e| BdkSignerError::External(format!("taproot sighash failure: {e}")))?;
+            let sighash_msg: [u8; 32] = sighash.to_byte_array();
+
+            let signature = taproot_signer
+                .sign_schnorr(
+                    inner.session.session(),
+                    signing_handle,
+                    &self.label,
+                    &full_path,
+                    &sighash_msg,
+                )
+                .map_err(|e| BdkSignerError::External(e.to_string()))?;
+
+            let tap_sig = bitcoin::taproot::Signature {
+                signature,
+                sighash_type,
+            };
+            psbt.inputs[input_idx]
+                .tap_script_sigs
+                .insert((our_xonly, *leaf_hash), tap_sig);
+            signed = true;
+        }
+
+        // Best-effort cleanup of session-only derived keys (see the wsh path).
+        if signing_handle != federation_handle {
+            let _ = inner.session.session().destroy_object(signing_handle);
+        }
+
+        Ok(signed)
+    }
+}
+
 impl TransactionSigner for Pkcs11Signer {
     // The mutex guard wraps a `cryptoki::Session` which is `!Sync`, so it
     // genuinely needs to be held across the whole signing flow.
     #[allow(clippy::significant_drop_tightening)]
+    #[allow(clippy::too_many_lines)]
     fn sign_transaction(
         &self,
         psbt: &mut Psbt,
@@ -432,6 +563,24 @@ impl TransactionSigner for Pkcs11Signer {
         let mut signed_any = false;
 
         for input_idx in 0..psbt.inputs.len() {
+            // Taproot script-path inputs (`tr(NUMS, multi_a(...))`) sign through
+            // the Schnorr path and stash `tap_script_sigs`; everything else
+            // falls through to the P2WSH ECDSA path below.
+            if psbt.inputs[input_idx].tap_internal_key.is_some()
+                || !psbt.inputs[input_idx].tap_scripts.is_empty()
+            {
+                if self.sign_taproot_input(
+                    &inner,
+                    psbt,
+                    input_idx,
+                    federation_handle,
+                    federation_path_len,
+                )? {
+                    signed_any = true;
+                }
+                continue;
+            }
+
             let our_origin = psbt.inputs[input_idx]
                 .bip32_derivation
                 .iter()
