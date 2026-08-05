@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Entries for 0.5.0 and earlier were reconstructed from git history.
 
+## [0.8.0] - Unreleased
+
+### Added
+- **Taproot (BIP-340) script-path signing.** `Pkcs11Signer` now signs P2TR
+  `tr(NUMS, multi_a(...))` inputs: it matches the signer's key in the input's
+  `tap_key_origins`, computes the BIP-341 tapscript sighash over all prevouts,
+  signs it through the backend's `TaprootSigner`, and inserts the Schnorr
+  signature into `tap_script_sigs`. The existing P2WSH/ECDSA path is unchanged.
+- Signing moved onto the backend as `SegwitSigner` / `TaprootSigner` capability
+  traits; `SignerCapabilities.taproot` is advertised when the backend provides a
+  Schnorr signer. `TaprootSigner` carries derivation context (label + full BIP-32
+  path) so vendor backends can name the key (e.g. Securosys TSB `signKeyName`).
+
 ## [0.7.0] - 2026-08-03
 
 ### Changed
