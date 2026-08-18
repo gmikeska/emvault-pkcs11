@@ -22,8 +22,8 @@ node-tests = []
 elements = ["emvault-core/elements", "dep:emvault-elements", "dep:elements"]
 
 [dependencies]
-emvault-core = { version = "0.8.0", path = "../emvault-core" }
-emvault-elements = { version = "0.8.0", path = "../emvault-elements", optional = true }
+emvault-core = { version = "0.8.0" }
+emvault-elements = { version = "0.8.0", optional = true }
 bdk_wallet = "3.1.0"
 bitcoin = "0.32.10"
 cryptoki = "0.12.0"
@@ -36,8 +36,8 @@ serde_json = "1.0.150"
 thiserror = "2.0.18"
 
 [dev-dependencies]
-emvault-core = { path = "../emvault-core", features = ["test-utils"] }
-emvault-dev-signer = { path = "../emvault-dev-signer" }
+emvault-core = { version = "0.8.0", features = ["test-utils"] }
+emvault-dev-signer = { version = "0.8.0" }
 dotenvy = "0.15.7"
 serial_test = "3.5.0"
 tempfile = "3.27.0"
