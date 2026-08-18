@@ -2,14 +2,14 @@
 //! integration.
 //!
 //! Builds a 2-of-3 federation of HSM-backed [`Pkcs11Signer`]s, constructs a
-//! synthetic PSET with properly populated inputs (witness_utxo, witness_script,
-//! bip32_derivation), and verifies that [`ElementsSigner::sign_pset`] inserts
+//! synthetic PSET with properly populated inputs (`witness_utxo`, `witness_script`,
+//! `bip32_derivation`), and verifies that [`ElementsSigner::sign_pset`] inserts
 //! valid ECDSA partial signatures.
 //!
 //! Unlike the lean descriptor cross-check in
 //! `node_pkcs11_elements_cross_check.rs` (which only validates descriptor
 //! construction and address derivation), these tests exercise the full signing
-//! pipeline: sighash computation → HSM ECDSA → partial_sigs insertion →
+//! pipeline: sighash computation → HSM ECDSA → `partial_sigs` insertion →
 //! signature verification.
 //!
 //! Gated behind `integration` (HSM access) and `elements` (Liquid signer

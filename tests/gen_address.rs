@@ -1,5 +1,5 @@
 //! Quick address generation from the 3-of-5 dev federation.
-//! Run: cargo test -p emvault-pkcs11 --features "integration elements" --test gen_address -- --nocapture
+//! Run: `cargo test -p emvault-pkcs11 --features "integration elements" --test gen_address -- --nocapture`
 
 #![cfg(all(feature = "integration", feature = "elements"))]
 

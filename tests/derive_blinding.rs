@@ -1,5 +1,5 @@
 //! Derive the SLIP-77 blinding private key for the federation's receive address.
-//! Run: cargo test -p emvault-pkcs11 --features "integration elements" --test derive_blinding -- --nocapture
+//! Run: `cargo test -p emvault-pkcs11 --features "integration elements" --test derive_blinding -- --nocapture`
 
 #![cfg(all(feature = "integration", feature = "elements"))]
 
