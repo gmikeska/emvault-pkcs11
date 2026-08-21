@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Entries for 0.5.0 and earlier were reconstructed from git history.
 
+## [0.9.0] - 2026-08-21
+
+### Changed
+- Released in lockstep with the suite-wide v0.9.0. No functional changes; adds
+  GitHub CI workflows, switches inter-crate dependencies to version-only
+  requirements (isolated CI resolves against crates.io), and clears a clippy lint.
+
 ## [0.8.0] - 2026-08-16
 
 ### Added
