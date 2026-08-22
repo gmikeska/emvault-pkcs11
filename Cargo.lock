@@ -552,6 +552,8 @@ dependencies = [
 [[package]]
 name = "emvault-core"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "992bd238f41e23b06617be62cf48a12c9acf141340cb425c2f960eb4b9f4b29a"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
@@ -571,12 +573,14 @@ dependencies = [
 [[package]]
 name = "emvault-dev-signer"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34274365e68086d6f73a6f31094fedce9f035762052c56ffdaf63f52ec7b6555"
 dependencies = [
  "bitcoin",
  "cryptoki",
  "dotenvy",
  "emvault-core",
- "emvault-pkcs11",
+ "emvault-pkcs11 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex",
  "log",
  "serde",
@@ -587,6 +591,8 @@ dependencies = [
 [[package]]
 name = "emvault-elements"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c679150853881713c8cc408465e578967056aaa1714540c0c772a4209e6863b8"
 dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
@@ -621,6 +627,24 @@ dependencies = [
  "tempfile",
  "thiserror",
  "ureq",
+]
+
+[[package]]
+name = "emvault-pkcs11"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b6ee433d590ec7ebe834c1203562f9774a5f0c047f360034784803cd044de98"
+dependencies = [
+ "bdk_wallet",
+ "bitcoin",
+ "cryptoki",
+ "emvault-core",
+ "hex",
+ "miniscript",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
