@@ -268,7 +268,12 @@ impl Pkcs11Signer {
     /// Lock the inner mutex. Internal helper exposed only to crate
     /// modules so the per-network Elements signer impl can share the same
     /// session/key bundle.
-    #[cfg(feature = "elements")]
+    ///
+    /// **Ungated as of the `sign_sighash` seam.** It was `#[cfg(feature = "elements")]` because
+    /// the Elements signer impl was its first caller -- but it names no `elements` type at all:
+    /// the guard is over `{session, loaded, backend}`. Gating it by association made the
+    /// byte-oriented signing path unreachable without pulling in a second `elements`, which is
+    /// the exact coupling that path exists to avoid.
     pub(crate) fn inner_lock(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, Pkcs11SignerInner>, &'static str> {
@@ -306,6 +311,99 @@ impl Pkcs11Signer {
         let inner = self.inner.lock().expect("Pkcs11Signer mutex poisoned");
         policy::save_policy(&inner.session, &self.label, p).map(|_| ())
     }
+
+    /// Sign one 32-byte sighash at a path **relative to the federation path**.
+    ///
+    /// # Why this exists: a byte-oriented signing seam
+    ///
+    /// `ElementsSigner::sign_pset` is the ergonomic entry point and it ties a caller to **this
+    /// crate's** `elements` version, because it takes `&mut elements::pset::Pset`. A consumer on a
+    /// different `elements` is then stuck: the types are unrelated to the compiler even though the
+    /// PSET bytes are identical, so the only route is re-parsing a consensus structure across a
+    /// version gap.
+    ///
+    /// This signs **32 bytes in, a signature out**. No `elements` type crosses the boundary, so a
+    /// caller computes its own sighash with whatever `elements`/`lwk` it already depends on and is
+    /// never coupled to ours.
+    ///
+    /// `relative` is relative to [`Self::derivation_path`] — the same arithmetic `sign_pset` does
+    /// on each input's `bip32_derivation` entry. An empty path signs with the federation key
+    /// itself.
+    ///
+    /// # What the caller still owns
+    ///
+    /// Everything PSET-shaped: locating its own inputs by [`Self::fingerprint`], reading
+    /// `witness_script` and `witness_utxo`, computing the SegWit v0 sighash, and encoding the
+    /// result as DER plus the sighash-type byte into `partial_sigs`. This signs; it does not
+    /// interpret a transaction.
+    ///
+    /// # Errors
+    ///
+    /// [`Pkcs11Error::Backend`] when the mutex is poisoned, when the backend cannot derive the
+    /// child key, or when the backend has no SegWit (ECDSA) signer.
+    pub fn sign_sighash(
+        &self,
+        relative: &DerivationPath,
+        sighash: &[u8; 32],
+    ) -> Result<bitcoin::secp256k1::ecdsa::Signature, Pkcs11Error> {
+        let inner = self
+            .inner_lock()
+            .map_err(|e| Pkcs11Error::Backend(e.to_string()))?;
+        sign_sighash_locked(&inner, relative, sighash)
+    }
+}
+
+/// The signing core, for a caller that **already holds** the inner lock.
+///
+/// # ▶ Why this is separate from [`Pkcs11Signer::sign_sighash`]
+///
+/// `ElementsSigner::sign_pset` holds the `inner` guard across its whole loop -- deliberately, as
+/// its own comment says, because the `cryptoki::Session` is `!Sync`. So it **cannot** call
+/// `sign_sighash`, which locks: `std::sync::Mutex` is not reentrant and the second lock would
+/// **deadlock**, not error.
+///
+/// Two copies of this block would be the obvious alternative and the wrong one: handle cleanup and
+/// low-S normalisation would then have two places to drift, and the copy inside the feature-gated
+/// Elements path is the one that is harder to exercise. ▶ **One implementation, two lock
+/// disciplines** -- `sign_sighash` acquires, `sign_pset` already holds.
+pub(crate) fn sign_sighash_locked(
+    inner: &Pkcs11SignerInner,
+    relative: &DerivationPath,
+    sighash: &[u8; 32],
+) -> Result<bitcoin::secp256k1::ecdsa::Signature, Pkcs11Error> {
+    let federation_handle = inner.loaded.private_key;
+    let signing_handle = if relative.as_ref().is_empty() {
+        federation_handle
+    } else {
+        inner
+            .backend
+            .derive_path(inner.session.session(), federation_handle, relative)
+            .map_err(|e| Pkcs11Error::Backend(e.to_string()))?
+    };
+
+    // Routed through the backend's SegWit signer rather than `crate::ecdsa::sign_with_low_s`
+    // directly. For the PKCS#11 backend they are the same call (`backend/mod.rs` delegates to it),
+    // but another backend may sign differently -- and bypassing the abstraction here would make
+    // this seam disagree with `sign_pset` on exactly the backends where it matters.
+    let signed = match inner.backend.segwit_signer() {
+        Some(s) => s
+            .sign_ecdsa(inner.session.session(), signing_handle, sighash)
+            .map_err(|e| Pkcs11Error::Backend(e.to_string())),
+        None => Err(Pkcs11Error::Backend(format!(
+            "backend `{}` does not support SegWit (ECDSA) signing",
+            inner.backend.backend_name()
+        ))),
+    };
+
+    // Derived handles are session objects; the federation handle is not ours to destroy.
+    // Unconditional and before `?`, so a signing failure does not leak one.
+    if signing_handle != federation_handle {
+        let _ = inner.session.session().destroy_object(signing_handle);
+    }
+
+    let mut sig = signed?;
+    sig.normalize_s();
+    Ok(sig)
 }
 
 // ---------------------------------------------------------------------------

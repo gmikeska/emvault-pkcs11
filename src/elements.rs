@@ -47,7 +47,6 @@ impl ElementsSigner for Pkcs11Signer {
             .map_err(|e| PsetError::Elements(e.to_string()))?;
 
         let federation_path_len = self.derivation_path_owned().len();
-        let federation_handle = inner.loaded.private_key;
         let mut signed = 0usize;
         for input_idx in 0..pset.inputs().len() {
             let our_origin = pset.inputs()[input_idx]
@@ -103,33 +102,21 @@ impl ElementsSigner for Pkcs11Signer {
             );
             let sighash_msg: [u8; 32] = sighash.to_byte_array();
 
-            let signing_handle = if relative_segments.is_empty() {
-                federation_handle
-            } else {
-                inner
-                    .backend
-                    .derive_path(inner.session.session(), federation_handle, &relative_path)
-                    .map_err(|e| PsetError::SignerBackend(e.to_string()))?
-            };
-
-            // Elements/Liquid signing is ECDSA — same SegWit path as Bitcoin;
-            // route it through the backend's SegWit signer.
-            let sign_result: Result<_, PsetError> = match inner.backend.segwit_signer() {
-                Some(s) => s
-                    .sign_ecdsa(inner.session.session(), signing_handle, &sighash_msg)
-                    .map_err(|e| PsetError::SignerBackend(e.to_string())),
-                None => Err(PsetError::SignerBackend(format!(
-                    "backend `{}` does not support SegWit (ECDSA) signing",
-                    inner.backend.backend_name()
-                ))),
-            };
-
-            if signing_handle != federation_handle {
-                let _ = inner.session.session().destroy_object(signing_handle);
-            }
-
-            let mut sig = sign_result?;
-            sig.normalize_s();
+            // ▶ One signing path, shared with `Pkcs11Signer::sign_sighash`.
+            //
+            // This block used to derive the child handle, call the backend's SegWit signer,
+            // destroy the handle and normalise S inline. `sign_sighash` now does exactly that and
+            // is reachable **without** the `elements` feature -- so a consumer on a different
+            // `elements` version can sign without re-parsing a PSET across a version gap.
+            //
+            // Calling it here rather than keeping both is the point: two paths to "sign a
+            // sighash" are two places for low-S normalisation or handle cleanup to drift, and the
+            // one that is harder to test is the one that would drift.
+            // ▶ `sign_sighash_locked`, NOT `self.sign_sighash` -- this function already holds
+            // the guard, and `std::sync::Mutex` is not reentrant, so the public method would
+            // DEADLOCK here rather than returning an error.
+            let sig = crate::signer::sign_sighash_locked(&inner, &relative_path, &sighash_msg)
+                .map_err(|e| PsetError::SignerBackend(e.to_string()))?;
 
             // Encode as DER + sighash flag byte (the same wire format
             // bitcoin's PSBT uses; LWK's `Wollet::finalize` consumes
