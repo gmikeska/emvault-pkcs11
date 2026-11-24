@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Entries for 0.5.0 and earlier were reconstructed from git history.
 
+## [0.11.0] - 2026-11-24
+
+Adds a PSET-free signing seam and collapses two copies of the signing core into one.
+
+### Added
+
+- **`Pkcs11Signer::sign_sighash(relative, sighash)`** — sign a 32-byte digest at a path
+  relative to the federation key, with no PSET involved. Reachable **without** the
+  `elements` feature, so a consumer on a different `elements` version can sign without
+  re-parsing a PSET across a version gap.
+
+### Changed
+
+- **One signing implementation, two lock disciplines.** `ElementsSigner::sign_pset`'s
+  derive-sign-destroy block moved into `sign_sighash_locked`, which both the trait impl and
+  the new public method call. `sign_pset` holds the inner guard across its whole loop
+  because `cryptoki::Session` is `!Sync`, so it cannot call the locking `sign_sighash` —
+  `std::sync::Mutex` is not reentrant and a second lock would deadlock rather than error.
+  Two copies of the block would be two places for low-S normalisation and derived-handle
+  cleanup to drift, and the copy inside the feature-gated Elements path is the harder one to
+  exercise.
+- **`inner_lock` is no longer `#[cfg(feature = "elements")]`.** It was gated by association
+  with its first caller but names no `elements` type at all — the guard is over
+  `{session, loaded, backend}`. Gating it that way made the byte-oriented signing path
+  unreachable without pulling in a second `elements`, which is the coupling the seam exists
+  to avoid.
+
+Derived-handle cleanup remains unconditional and runs before `?`, so a signing failure does
+not leak a derived session object.
+
 ## [0.10.0] - 2026-08-28
 
 ### Changed
